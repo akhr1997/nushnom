@@ -2432,12 +2432,25 @@ function AnushkaIntroDialog({ onClose }) {
   );
 }
 
+function isOwnerRoute() {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  const hash = window.location.hash.replace(/^#/, "").replace(/\/+$/, "");
+  const params = new URLSearchParams(window.location.search);
+  return (
+    path === "/nush" ||
+    path.endsWith("/nush") ||
+    hash === "/nush" ||
+    hash === "nush" ||
+    params.get("mode") === "nush"
+  );
+}
+
 export default function NushNom() {
   useFonts();
   const [data, setData] = useState(null);
   const [view, setView] = useState("dashboard"); // dashboard | add | manage
   const [showAnushkaIntro, setShowAnushkaIntro] = useState(false);
-  const isNushRoute = window.location.pathname.replace(/\/+$/, "") === "/nush";
+  const isNushRoute = isOwnerRoute();
 
   useEffect(() => {
     loadData().then(setData);

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NushNom</title>
+    <script>
+      var parts = window.location.pathname.split("/").filter(Boolean);
+      var repo = parts[0] === "nushnom" ? "/nushnom" : "";
+      var route = parts.slice(repo ? 1 : 0).join("/");
+      window.location.replace(repo + "/#" + (route ? "/" + route : "/"));
+    </script>
+  </head>
+  <body></body>
+</html>
