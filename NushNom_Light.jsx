@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Trophy, Star, MapPin, Camera, Search, Sparkles, Award, ChefHat,
-  Utensils, Lock, Plus, X, Check, Flame, ArrowLeft,
+  Utensils, Plus, X, Check, Flame, ArrowLeft,
   Loader2, Heart, TrendingUp, Edit2, Trash2
 } from "lucide-react";
 
@@ -16,8 +16,6 @@ function useFonts() {
     document.head.appendChild(link);
   }, []);
 }
-
-const PASSCODE = "nushnom25";
 
 // Paste your Google API key here (needs the Places API enabled,
 // restricted to your domain via HTTP referrer restrictions in Google Cloud Console).
@@ -292,37 +290,6 @@ function RestaurantCard({ restaurant, reviews, onClick }) {
           <ChefHat size={13} /> Try the {topDish}
         </div>
       )}
-    </div>
-  );
-}
-
-function PasscodeGate({ onUnlock, onCancel }) {
-  const [val, setVal] = useState("");
-  const [err, setErr] = useState(false);
-  return (
-    <div style={{
-      background: "#FFFFFF", border: "1px solid #E6D8C4", borderRadius: 16,
-      padding: 28, maxWidth: 340, margin: "40px auto", textAlign: "center"
-    }}>
-      <Lock size={28} color="#E8A33D" style={{ marginBottom: 10 }} />
-      <div style={{ fontFamily: "'Baloo 2', cursive", fontSize: 18, color: "#2B1B2E", marginBottom: 6 }}>Curator access only</div>
-      <div style={{ fontSize: 13, color: "#8A7A94", marginBottom: 16 }}>Enter the passcode to add a review.</div>
-      <input
-        type="password"
-        value={val}
-        onChange={e => { setVal(e.target.value); setErr(false); }}
-        placeholder="Passcode"
-        style={{
-          width: "100%", padding: "10px 12px", borderRadius: 12, border: `1px solid ${err ? "#D6336C" : "#E6D8C4"}`,
-          background: "#FBF3E6", color: "#2B1B2E", fontSize: 14, marginBottom: 14, boxSizing: "border-box"
-        }}
-        onKeyDown={e => { if (e.key === "Enter") { val === PASSCODE ? onUnlock() : setErr(true); } }}
-      />
-      {err && <div style={{ color: "#D6336C", fontSize: 12, marginBottom: 10 }}>Wrong passcode, try again.</div>}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onCancel} style={btnGhost}>Cancel</button>
-        <button onClick={() => val === PASSCODE ? onUnlock() : setErr(true)} style={btnPrimary}>Unlock</button>
-      </div>
     </div>
   );
 }
@@ -653,9 +620,11 @@ function PizzaTracker({ reviewCount, onAddReview }) {
           🍕 {wholePizzas} whole {wholePizzas === 1 ? "pizza" : "pizzas"} baked
         </div>
       </div>
-      <button onClick={onAddReview} style={{ ...btnPrimary, flex: "none", display: "flex", alignItems: "center", gap: 8, padding: "12px 20px" }}>
-        <Plus size={16} /> Add review
-      </button>
+      {onAddReview && (
+        <button onClick={onAddReview} style={{ ...btnPrimary, flex: "none", display: "flex", alignItems: "center", gap: 8, padding: "12px 20px" }}>
+          <Plus size={16} /> Add review
+        </button>
+      )}
     </div>
   );
 }
@@ -820,6 +789,7 @@ function ManageReviews({ restaurants, reviews, onUpdateReview, onDeleteReview, o
 }
 
 function Dashboard({ restaurants, reviews, profile, onAddReview }) {
+  const [selectedCuisine, setSelectedCuisine] = useState("");
 
   const scored = useMemo(() => {
     return restaurants.map(r => {
@@ -845,6 +815,8 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
   }, [scored]);
 
   const cuisinesWithData = Object.keys(byCuisine).filter(c => byCuisine[c].length > 0);
+  const activeCuisine = selectedCuisine || cuisinesWithData[0] || "";
+  const activeCuisinePicks = activeCuisine ? byCuisine[activeCuisine] || [] : [];
 
   return (
     <div>
@@ -868,14 +840,16 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
             <Utensils size={18} color="#D6336C" />
             <div style={{ fontFamily: "'Baloo 2', cursive", fontSize: 18, color: "#2B1B2E" }}>Top picks by cuisine</div>
           </div>
-          {cuisinesWithData.map(c => (
-            <div key={c} style={{ marginBottom: 22 }}>
-              <div style={{ fontSize: 13, color: "#8A7A94", marginBottom: 8, fontWeight: 500 }}>{c}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-                {byCuisine[c].map(({ restaurant }) => <RestaurantCard key={restaurant.id + c} restaurant={restaurant} reviews={reviews} />)}
-              </div>
-            </div>
-          ))}
+          <select
+            value={activeCuisine}
+            onChange={e => setSelectedCuisine(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 14 }}
+          >
+            {cuisinesWithData.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 32 }}>
+            {activeCuisinePicks.map(({ restaurant }) => <RestaurantCard key={restaurant.id + activeCuisine} restaurant={restaurant} reviews={reviews} />)}
+          </div>
         </>
       )}
     </div>
@@ -896,8 +870,8 @@ function EmptyState() {
 export default function NushNom() {
   useFonts();
   const [data, setData] = useState(null);
-  const [view, setView] = useState("dashboard"); // dashboard | gate | add | manage
-  const [pendingAction, setPendingAction] = useState(null);
+  const [view, setView] = useState("dashboard"); // dashboard | add | manage
+  const isNushRoute = window.location.pathname.replace(/\/+$/, "") === "/nush";
 
   useEffect(() => {
     loadData().then(setData);
@@ -918,9 +892,6 @@ export default function NushNom() {
   const badges = computeBadges(data.reviews);
   const profile = { badges };
 
-  const requestAccess = (action) => { setPendingAction(action); setView("gate"); };
-  const handleUnlock = () => { setView(pendingAction || "dashboard"); setPendingAction(null); };
-  const handleGateCancel = () => { setView("dashboard"); setPendingAction(null); };
   const closeToDashboard = () => setView("dashboard");
 
   const addRestaurant = (r) => setData(prev => ({ ...prev, restaurants: [...prev.restaurants, r] }));
@@ -977,22 +948,18 @@ export default function NushNom() {
               <div style={{ fontSize: 11, color: "#8A7A94" }}>Anushka's Mumbai food quest</div>
             </div>
           </div>
-          {view === "dashboard" && (
-            <button onClick={() => requestAccess("manage")} style={{
-              background: "none", border: "1px solid #E6D8C4", borderRadius: 10, padding: "8px 12px",
-              color: "#8A7A94", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6
+          {isNushRoute && view === "dashboard" && (
+            <button aria-label="Manage reviews" title="Manage reviews" onClick={() => setView("manage")} style={{
+              background: "none", border: "1px solid #E6D8C4", borderRadius: 10, padding: 8,
+              color: "#8A7A94", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
             }}>
-              <Edit2 size={12} /> Manage reviews
+              <Edit2 size={12} />
             </button>
           )}
         </div>
 
         {view === "dashboard" && (
-          <Dashboard restaurants={data.restaurants} reviews={data.reviews} profile={profile} onAddReview={() => requestAccess("add")} />
-        )}
-
-        {view === "gate" && (
-          <PasscodeGate onUnlock={handleUnlock} onCancel={handleGateCancel} />
+          <Dashboard restaurants={data.restaurants} reviews={data.reviews} profile={profile} onAddReview={isNushRoute ? () => setView("add") : null} />
         )}
 
         {view === "add" && (
