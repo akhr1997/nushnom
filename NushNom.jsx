@@ -268,12 +268,14 @@ function getFoursquareArea(place) {
 async function searchFoursquarePlaces(query, signal) {
   if (!query || query.trim().length < 3) return { results: [], error: null };
   const browserApiKey = window.NUSHNOM_FOURSQUARE_API_KEY;
+  const envApiKey = import.meta.env.VITE_FOURSQUARE_API_KEY;
   const useDevProxy = import.meta.env.DEV && !browserApiKey;
-  if (!useDevProxy && !browserApiKey) {
+  const apiKey = browserApiKey || envApiKey;
+  if (!useDevProxy && !apiKey) {
     return {
       results: [],
       error:
-        "Add VITE_FOURSQUARE_API_KEY locally or window.NUSHNOM_FOURSQUARE_API_KEY in the browser to enable Foursquare search.",
+        "Foursquare key missing in this deployment. Add VITE_FOURSQUARE_API_KEY to the deploy environment and rebuild.",
     };
   }
 
@@ -289,10 +291,10 @@ async function searchFoursquarePlaces(query, signal) {
       : `https://places-api.foursquare.com/places/search?${params.toString()}`;
     const response = await fetch(url, {
       signal,
-      headers: browserApiKey
+      headers: !useDevProxy && apiKey
         ? {
             Accept: "application/json",
-            Authorization: `Bearer ${browserApiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "X-Places-Api-Version": FOURSQUARE_API_VERSION,
           }
         : {
@@ -1266,7 +1268,8 @@ function AddReviewFlow({
   }, [done]);
 
   if (done) {
-    const { wholePizzas, currentSlices } = getPizzaProgress(reviews.length + 1);
+    const completedReviewCount = Math.max(1, reviews.length);
+    const { wholePizzas, currentSlices } = getPizzaProgress(completedReviewCount);
     return (
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
         <div
