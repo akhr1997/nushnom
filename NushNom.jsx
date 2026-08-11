@@ -37,22 +37,52 @@ const DISPLAY_FONT = "'Tilt Neon', 'Outfit', sans-serif";
 const BODY_FONT = "'Outfit', sans-serif";
 const MONO_FONT = "'Space Mono', monospace";
 
-const CUISINES = [
-  "North Indian",
-  "South Indian",
-  "Mughlai",
-  "Parsi",
-  "Gujarati",
-  "Seafood / Malvani",
-  "Street Food",
-  "Cafe",
-  "Continental",
-  "Chinese",
-  "Desserts",
-  "Bakery",
-  "Modern Indian",
-  "Other",
+const CUISINE_GROUPS = [
+  {
+    label: "Indian regional",
+    cuisines: [
+      "North Indian",
+      "South Indian",
+      "Gujarati",
+      "Goan",
+      "Modern Indian",
+    ],
+  },
+  {
+    label: "Asian",
+    cuisines: ["Chinese", "Japanese", "Sushi", "Korean", "Thai", "Asian"],
+  },
+  {
+    label: "Global",
+    cuisines: [
+      "Italian",
+      "Mexican",
+      "Middle Eastern",
+      "Turkish",
+      "Greek",
+      "American",
+      "Continental",
+    ],
+  },
+  {
+    label: "Casual bites",
+    cuisines: ["Street Food", "Chaat", "Burgers", "Fast Food"],
+  },
+  {
+    label: "Cafes & sweets",
+    cuisines: ["Cafe", "Coffee", "Desserts", "Ice Cream", "Bakery"],
+  },
+  {
+    label: "Dietary",
+    cuisines: ["Healthy", "Vegan"],
+  },
+  {
+    label: "Other",
+    cuisines: ["Other"],
+  },
 ];
+
+const CUISINES = CUISINE_GROUPS.flatMap((group) => group.cuisines);
 
 const LEGACY_SEED_RESTAURANT_IDS = new Set(
   Array.from({ length: 12 }, (_, i) => `r${i + 1}`)
@@ -1078,6 +1108,49 @@ function DishRow({ dish, onChange, onRemove }) {
   );
 }
 
+function CuisineSelector({ selected, onToggle }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 16 }}>
+      {CUISINE_GROUPS.map((group) => (
+        <div key={group.label}>
+          <div
+            style={{
+              ...labelStyle,
+              marginBottom: 7,
+              color: "#5c5470",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            {group.label}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {group.cuisines.map((c) => (
+              <span
+                key={c}
+                onClick={() => onToggle(c)}
+                style={{
+                  fontSize: 12,
+                  padding: "6px 12px",
+                  borderRadius: 2,
+                  cursor: "pointer",
+                  border: `1px solid ${
+                    selected.includes(c) ? "#ff2e63" : "#3d2466"
+                  }`,
+                  background: selected.includes(c) ? "#3d0d1f" : "#0d0221",
+                  color: selected.includes(c) ? "#ff85a8" : "#8b8bc4",
+                }}
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AddReviewFlow({
   restaurants,
   reviews,
@@ -1564,29 +1637,7 @@ function AddReviewFlow({
       </div>
 
       <label style={labelStyle}>Cuisine</label>
-      <div
-        style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}
-      >
-        {CUISINES.map((c) => (
-          <span
-            key={c}
-            onClick={() => toggleCuisine(c)}
-            style={{
-              fontSize: 12,
-              padding: "6px 12px",
-              borderRadius: 2,
-              cursor: "pointer",
-              border: `1px solid ${
-                cuisines.includes(c) ? "#ff2e63" : "#3d2466"
-              }`,
-              background: cuisines.includes(c) ? "#3d0d1f" : "#0d0221",
-              color: cuisines.includes(c) ? "#ff85a8" : "#8b8bc4",
-            }}
-          >
-            {c}
-          </span>
-        ))}
-      </div>
+      <CuisineSelector selected={cuisines} onToggle={toggleCuisine} />
 
       <label style={labelStyle}>Overall rating</label>
       <div style={{ marginBottom: 16 }}>
@@ -1874,29 +1925,7 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
       </div>
 
       <label style={labelStyle}>Cuisine</label>
-      <div
-        style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}
-      >
-        {CUISINES.map((c) => (
-          <span
-            key={c}
-            onClick={() => toggleCuisine(c)}
-            style={{
-              fontSize: 12,
-              padding: "6px 12px",
-              borderRadius: 2,
-              cursor: "pointer",
-              border: `1px solid ${
-                cuisines.includes(c) ? "#ff2e63" : "#3d2466"
-              }`,
-              background: cuisines.includes(c) ? "#3d0d1f" : "#0d0221",
-              color: cuisines.includes(c) ? "#ff85a8" : "#8b8bc4",
-            }}
-          >
-            {c}
-          </span>
-        ))}
-      </div>
+      <CuisineSelector selected={cuisines} onToggle={toggleCuisine} />
 
       <label style={labelStyle}>Overall rating</label>
       <div style={{ marginBottom: 16 }}>
@@ -2326,6 +2355,16 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
   const cuisinesWithData = Object.keys(byCuisine).filter(
     (c) => byCuisine[c].length > 0
   );
+  const groupedCuisinesWithData = CUISINE_GROUPS.map((group) => ({
+    ...group,
+    cuisines: group.cuisines.filter((c) => cuisinesWithData.includes(c)),
+  })).filter((group) => group.cuisines.length > 0);
+  const groupedCuisineSet = new Set(
+    groupedCuisinesWithData.flatMap((group) => group.cuisines)
+  );
+  const uncategorizedCuisinesWithData = cuisinesWithData.filter(
+    (c) => !groupedCuisineSet.has(c)
+  );
   const activeCuisine = selectedCuisine || cuisinesWithData[0] || "";
   const activeCuisinePicks = activeCuisine
     ? byCuisine[activeCuisine] || []
@@ -2508,11 +2547,24 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
             onChange={(e) => setSelectedCuisine(e.target.value)}
             style={{ ...inputStyle, marginBottom: 14 }}
           >
-            {cuisinesWithData.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
+            {groupedCuisinesWithData.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.cuisines.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </optgroup>
             ))}
+            {uncategorizedCuisinesWithData.length > 0 && (
+              <optgroup label="Uncategorized">
+                {uncategorizedCuisinesWithData.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <div
             style={{
@@ -2890,7 +2942,7 @@ function AnushkaIntroDialog({ onClose }) {
                 animation: "loveMessage 2.2s ease-out forwards",
               }}
             >
-              Ashu loves you infinity
+              Ashu loves you infinitely
             </div>
           </div>
         )}
