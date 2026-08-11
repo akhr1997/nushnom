@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#1a0b2e"/>
+  <circle cx="32" cy="32" r="26" fill="#ff2e63" opacity="0.18"/>
+  <text x="17" y="39" font-family="Outfit, Arial, sans-serif" font-size="31" font-weight="800" fill="#fffbe8">A</text>
+  <text x="31" y="31" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif" font-size="15">🍴</text>
+  <text x="34" y="47" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif" font-size="17">❤️</text>
+</svg>

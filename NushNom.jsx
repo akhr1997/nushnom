@@ -4,7 +4,6 @@ import {
   Star,
   MapPin,
   Camera,
-  Search,
   Sparkles,
   Award,
   ChefHat,
@@ -29,14 +28,14 @@ function useFonts() {
     link.id = FONT_LINK_ID;
     link.rel = "stylesheet";
     link.href =
-      "https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap";
+      "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&family=Tilt+Neon&display=swap";
     document.head.appendChild(link);
   }, []);
 }
 
-// Paste your Google API key here (needs the Places API enabled,
-// restricted to your domain via HTTP referrer restrictions in Google Cloud Console).
-const GOOGLE_MAPS_API_KEY = "AIzaSyASFujL6T-rlzDbt_TJTAo2JZoIIs1mK8s";
+const DISPLAY_FONT = "'Tilt Neon', 'Outfit', sans-serif";
+const BODY_FONT = "'Outfit', sans-serif";
+const MONO_FONT = "'Space Mono', monospace";
 
 const CUISINES = [
   "North Indian",
@@ -55,104 +54,9 @@ const CUISINES = [
   "Other",
 ];
 
-const SEED_RESTAURANTS = [
-  {
-    id: "r1",
-    name: "Bademiya",
-    area: "Colaba",
-    lat: 18.9216,
-    lng: 72.8331,
-    cuisines: ["Mughlai", "Street Food"],
-  },
-  {
-    id: "r2",
-    name: "Trishna",
-    area: "Fort",
-    lat: 18.9308,
-    lng: 72.8331,
-    cuisines: ["Seafood / Malvani"],
-  },
-  {
-    id: "r3",
-    name: "Britannia & Co.",
-    area: "Ballard Estate",
-    lat: 18.943,
-    lng: 72.839,
-    cuisines: ["Parsi"],
-  },
-  {
-    id: "r4",
-    name: "Prithvi Cafe",
-    area: "Juhu",
-    lat: 19.1075,
-    lng: 72.8263,
-    cuisines: ["Cafe"],
-  },
-  {
-    id: "r5",
-    name: "Swati Snacks",
-    area: "Tardeo",
-    lat: 18.9698,
-    lng: 72.8145,
-    cuisines: ["Gujarati", "Street Food"],
-  },
-  {
-    id: "r6",
-    name: "Peshawri",
-    area: "Andheri East",
-    lat: 19.1075,
-    lng: 72.8479,
-    cuisines: ["North Indian", "Mughlai"],
-  },
-  {
-    id: "r7",
-    name: "The Bombay Canteen",
-    area: "Lower Parel",
-    lat: 18.9967,
-    lng: 72.8258,
-    cuisines: ["Modern Indian"],
-  },
-  {
-    id: "r8",
-    name: "Gajalee",
-    area: "Vile Parle",
-    lat: 19.1003,
-    lng: 72.8493,
-    cuisines: ["Seafood / Malvani"],
-  },
-  {
-    id: "r9",
-    name: "Cafe Madras",
-    area: "Matunga",
-    lat: 19.0273,
-    lng: 72.8554,
-    cuisines: ["South Indian"],
-  },
-  {
-    id: "r10",
-    name: "Suzette",
-    area: "Bandra",
-    lat: 19.0596,
-    lng: 72.8295,
-    cuisines: ["Continental", "Cafe"],
-  },
-  {
-    id: "r11",
-    name: "Yazdani Bakery",
-    area: "Fort",
-    lat: 18.942,
-    lng: 72.833,
-    cuisines: ["Bakery", "Parsi"],
-  },
-  {
-    id: "r12",
-    name: "Mohammed Ali Road Stalls",
-    area: "Bhendi Bazaar",
-    lat: 18.9581,
-    lng: 72.832,
-    cuisines: ["Street Food"],
-  },
-];
+const LEGACY_SEED_RESTAURANT_IDS = new Set(
+  Array.from({ length: 12 }, (_, i) => `r${i + 1}`)
+);
 
 const LEVELS = [
   { name: "Street Food Rookie", min: 0 },
@@ -229,6 +133,8 @@ function computeBadges(reviews) {
 }
 
 const SLICES_PER_PIZZA = 8;
+const OPENAI_SENTIMENT_MODEL = "gpt-4o";
+const FOURSQUARE_API_VERSION = "2025-06-17";
 
 function getPizzaProgress(reviewCount) {
   const wholePizzas = Math.floor(reviewCount / SLICES_PER_PIZZA);
@@ -248,73 +154,181 @@ function wedgePath(i, total, cx, cy, r) {
 }
 
 async function scoreSentiment(text) {
-  if (!text || text.trim().length < 3) return 3;
+  if (!text || text.trim().length < 3) return null;
+  const fallbackScore = scoreLocalSentiment(text);
+  const apiKey =
+    window.NUSHNOM_OPENAI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey) return fallbackScore;
+
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        system:
-          'You score restaurant review text for enthusiasm and positivity, independent of any star rating. Respond with ONLY a JSON object, no markdown, no preamble: {"score": number}. Score is 0 to 5, one decimal place. 5 = ecstatic/glowing, 3 = mixed/neutral, 0 = very negative.',
-        messages: [{ role: "user", content: text }],
+        model: OPENAI_SENTIMENT_MODEL,
+        instructions:
+          'Score restaurant review text for enthusiasm and positivity, independent of any star rating. Respond with only JSON: {"score": number}. Score is 0 to 5, one decimal place. 5 = ecstatic/glowing, 3 = mixed/neutral, 0 = very negative.',
+        input: text,
+        text: { format: { type: "json_object" } },
       }),
     });
+    if (!response.ok) return fallbackScore;
     const data = await response.json();
-    const textBlock = (data.content || []).find((b) => b.type === "text");
-    if (!textBlock) return 3;
-    const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
+    const outputText =
+      data.output_text ||
+      (data.output || [])
+        .flatMap((item) => item.content || [])
+        .filter((content) => content.type === "output_text")
+        .map((content) => content.text)
+        .join("");
+    if (!outputText) return fallbackScore;
+    const cleaned = outputText.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     const score = Number(parsed.score);
-    return Number.isFinite(score) ? Math.max(0, Math.min(5, score)) : 3;
+    return Number.isFinite(score)
+      ? Math.max(0, Math.min(5, score))
+      : fallbackScore;
   } catch (e) {
-    return 3;
+    return fallbackScore;
   }
 }
 
-async function searchGooglePlaces(query) {
+function scoreLocalSentiment(text) {
+  const normalized = text.toLowerCase();
+  const negativeWords = [
+    "bad",
+    "terrible",
+    "awful",
+    "horrible",
+    "worst",
+    "bland",
+    "stale",
+    "cold",
+    "overpriced",
+    "disappointing",
+    "disappointed",
+    "hate",
+    "hated",
+    "not good",
+    "would not",
+    "never again",
+  ];
+  const positiveWords = [
+    "amazing",
+    "excellent",
+    "incredible",
+    "perfect",
+    "loved",
+    "love",
+    "delicious",
+    "fantastic",
+    "favorite",
+    "favourite",
+    "must try",
+    "best",
+    "great",
+    "recommend",
+  ];
+  const negativeHits = negativeWords.filter((word) =>
+    normalized.includes(word)
+  ).length;
+  const positiveHits = positiveWords.filter((word) =>
+    normalized.includes(word)
+  ).length;
+  if (negativeHits > positiveHits) {
+    return Math.max(0.5, 2.2 - negativeHits * 0.4);
+  }
+  if (positiveHits > negativeHits) {
+    return Math.min(5, 3.6 + positiveHits * 0.35);
+  }
+  return 3;
+}
+
+function calculateRecommendationScore(rating, sentimentScore) {
+  const effectiveSentiment = Number.isFinite(sentimentScore)
+    ? sentimentScore
+    : rating;
+  return Math.round((rating * 0.7 + effectiveSentiment * 0.3) * 10) / 10;
+}
+
+function getFoursquareArea(place) {
+  const location = place.location || {};
+  return (
+    location.locality ||
+    location.neighborhood?.[0] ||
+    location.region ||
+    location.address ||
+    "Mumbai"
+  );
+}
+
+async function searchFoursquarePlaces(query, signal) {
   if (!query || query.trim().length < 3) return { results: [], error: null };
+  const browserApiKey = window.NUSHNOM_FOURSQUARE_API_KEY;
+  const useDevProxy = import.meta.env.DEV && !browserApiKey;
+  if (!useDevProxy && !browserApiKey) {
+    return {
+      results: [],
+      error:
+        "Add VITE_FOURSQUARE_API_KEY locally or window.NUSHNOM_FOURSQUARE_API_KEY in the browser to enable Foursquare search.",
+    };
+  }
+
   try {
-    const response = await fetch(
-      "https://places.googleapis.com/v1/places:searchText",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-          "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.location",
-        },
-        body: JSON.stringify({
-          textQuery: `${query} restaurant Mumbai`,
-          regionCode: "IN",
-          maxResultCount: 8,
-        }),
-      }
-    );
-    const data = await response.json();
+    const params = new URLSearchParams({
+      query: query.trim(),
+      near: "Mumbai, Maharashtra",
+      limit: "8",
+      sort: "RELEVANCE",
+    });
+    const url = useDevProxy
+      ? `/api/foursquare/search?${params.toString()}`
+      : `https://places-api.foursquare.com/places/search?${params.toString()}`;
+    const response = await fetch(url, {
+      signal,
+      headers: browserApiKey
+        ? {
+            Accept: "application/json",
+            Authorization: `Bearer ${browserApiKey}`,
+            "X-Places-Api-Version": FOURSQUARE_API_VERSION,
+          }
+        : {
+            Accept: "application/json",
+          },
+    });
     if (!response.ok) {
       return {
         results: [],
-        error:
-          (data.error && data.error.message) ||
-          `Places search failed (HTTP ${response.status})`,
+        error: `Foursquare search failed (HTTP ${response.status})`,
       };
     }
-    const places = data.places || [];
+    const data = await response.json();
     return {
-      results: places.map((p) => ({
-        placeId: p.id,
-        name: p.displayName ? p.displayName.text : "Unknown",
-        area: p.formattedAddress || "Mumbai",
-        lat: p.location ? p.location.latitude : 19.076,
-        lng: p.location ? p.location.longitude : 72.8777,
-      })),
+      results: (data.results || []).map((place) => {
+        const mainGeo = place.geocodes?.main || {};
+        const location = place.location || {};
+        return {
+          id: `fsq-${place.fsq_place_id}`,
+          name: place.name || "Unknown restaurant",
+          area: getFoursquareArea(place),
+          lat: Number(place.latitude ?? mainGeo.latitude) || 19.076,
+          lng: Number(place.longitude ?? mainGeo.longitude) || 72.8777,
+          address:
+            location.formatted_address ||
+            [location.address, location.locality, location.region]
+              .filter(Boolean)
+              .join(", "),
+          categories: (place.categories || []).map((category) => category.name),
+        };
+      }),
       error: null,
     };
   } catch (e) {
-    return { results: [], error: "Network error reaching Google Places" };
+    if (e.name === "AbortError") return { results: [], error: null };
+    return { results: [], error: "Network error reaching Foursquare" };
   }
 }
 
@@ -329,12 +343,26 @@ function fileToBase64(file) {
 
 const STORAGE_KEY = "nushnom-data";
 
+function removeUnreviewedLegacySeeds(data) {
+  const reviews = data.reviews || [];
+  const reviewedRestaurantIds = new Set(reviews.map((r) => r.restaurantId));
+  return {
+    restaurants: (data.restaurants || []).filter(
+      (r) =>
+        !LEGACY_SEED_RESTAURANT_IDS.has(r.id) || reviewedRestaurantIds.has(r.id)
+    ),
+    reviews,
+  };
+}
+
 async function loadData() {
   try {
     const result = await window.storage.get(STORAGE_KEY, true);
-    if (result && result.value) return JSON.parse(result.value);
+    if (result && result.value) {
+      return removeUnreviewedLegacySeeds(JSON.parse(result.value));
+    }
   } catch (e) {}
-  return { restaurants: SEED_RESTAURANTS, reviews: [] };
+  return { restaurants: [], reviews: [] };
 }
 
 async function saveData(data) {
@@ -411,7 +439,7 @@ function XPRing({ points, level }) {
         <Trophy size={22} color="#ffd23f" />
         <span
           style={{
-            fontFamily: "'Press Start 2P', monospace",
+            fontFamily: MONO_FONT,
             fontSize: 13,
             color: "#fffbe8",
             fontWeight: 700,
@@ -445,7 +473,7 @@ function BadgeChip({ badge }) {
         padding: "6px 12px",
         fontSize: 12,
         color: "#fffbe8",
-        fontFamily: "'VT323', monospace",
+        fontFamily: BODY_FONT,
         fontWeight: 500,
       }}
     >
@@ -455,7 +483,7 @@ function BadgeChip({ badge }) {
   );
 }
 
-function RestaurantCard({ restaurant, reviews, onClick }) {
+function RestaurantCard({ restaurant, reviews, onClick, badge }) {
   const rReviews = reviews.filter((r) => r.restaurantId === restaurant.id);
   const avgScore = rReviews.length
     ? rReviews.reduce((s, r) => s + r.recommendationScore, 0) / rReviews.length
@@ -492,7 +520,7 @@ function RestaurantCard({ restaurant, reviews, onClick }) {
         <div>
           <div
             style={{
-              fontFamily: "'Press Start 2P', cursive",
+              fontFamily: DISPLAY_FONT,
               fontSize: 17,
               color: "#fffbe8",
               fontWeight: 700,
@@ -517,7 +545,7 @@ function RestaurantCard({ restaurant, reviews, onClick }) {
           style={{
             background: "#ffd23f",
             color: "#2e1a00",
-            fontFamily: "'Press Start 2P', monospace",
+            fontFamily: MONO_FONT,
             fontWeight: 700,
             fontSize: 13,
             borderRadius: 2,
@@ -557,6 +585,24 @@ function RestaurantCard({ restaurant, reviews, onClick }) {
           }}
         >
           <ChefHat size={13} /> Try the {topDish}
+        </div>
+      )}
+      {badge && (
+        <div
+          style={{
+            marginTop: 10,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            color: "#2e1a00",
+            background: "#ff85a8",
+            borderRadius: 2,
+            padding: "4px 8px",
+            fontSize: 11,
+            fontWeight: 800,
+          }}
+        >
+          <Flame size={12} /> {badge}
         </div>
       )}
     </div>
@@ -615,7 +661,7 @@ function RestaurantDetailsModal({ restaurant, reviews, onClose }) {
           <div>
             <div
               style={{
-                fontFamily: "'Press Start 2P', cursive",
+                fontFamily: DISPLAY_FONT,
                 fontSize: 20,
                 color: "#fffbe8",
                 lineHeight: 1.3,
@@ -658,7 +704,7 @@ function RestaurantDetailsModal({ restaurant, reviews, onClose }) {
               display: "inline-flex",
               background: "#ffd23f",
               color: "#2e1a00",
-              fontFamily: "'Press Start 2P', monospace",
+              fontFamily: MONO_FONT,
               fontSize: 13,
               borderRadius: 2,
               padding: "6px 10px",
@@ -732,6 +778,25 @@ function RestaurantDetailsModal({ restaurant, reviews, onClose }) {
                   <div style={{ fontSize: 12, color: "#ffd23f" }}>
                     {rv.recommendationScore}/5
                   </div>
+                  {rv.mustTry && (
+                    <>
+                      <div style={{ ...labelStyle, marginTop: 10 }}>
+                        Must try
+                      </div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 5,
+                          color: "#ff85a8",
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        <Flame size={13} /> Yes
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               {rv.recommendedDish && (
@@ -853,7 +918,7 @@ const btnPrimary = {
   borderRadius: 3,
   padding: "10px 14px",
   fontWeight: 700,
-  fontFamily: "'VT323', monospace",
+  fontFamily: BODY_FONT,
   fontSize: 14,
   cursor: "pointer",
 };
@@ -865,7 +930,7 @@ const btnGhost = {
   borderRadius: 3,
   padding: "10px 14px",
   fontWeight: 500,
-  fontFamily: "'VT323', monospace",
+  fontFamily: BODY_FONT,
   fontSize: 14,
   cursor: "pointer",
 };
@@ -878,7 +943,7 @@ const inputStyle = {
   color: "#fffbe8",
   fontSize: 14,
   boxSizing: "border-box",
-  fontFamily: "'VT323', monospace",
+  fontFamily: BODY_FONT,
 };
 const labelStyle = {
   fontSize: 12,
@@ -1031,43 +1096,71 @@ function AddReviewFlow({
   const [restaurant, setRestaurant] = useState(null);
   const [newName, setNewName] = useState("");
   const [newArea, setNewArea] = useState("");
-  const [placesResults, setPlacesResults] = useState([]);
-  const [placesSearching, setPlacesSearching] = useState(false);
-  const [placesError, setPlacesError] = useState(null);
-
-  useEffect(() => {
-    if (query.trim().length < 3) {
-      setPlacesResults([]);
-      setPlacesError(null);
-      return;
-    }
-    let cancelled = false;
-    setPlacesSearching(true);
-    const t = setTimeout(async () => {
-      const { results, error } = await searchGooglePlaces(query);
-      if (!cancelled) {
-        setPlacesResults(results);
-        setPlacesError(error);
-        setPlacesSearching(false);
-      }
-    }, 500);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [query]);
+  const [foursquareResults, setFoursquareResults] = useState([]);
+  const [foursquareSearching, setFoursquareSearching] = useState(false);
+  const [foursquareError, setFoursquareError] = useState(null);
 
   const [cuisines, setCuisines] = useState([]);
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
+  const [mustTry, setMustTry] = useState(false);
   const [dishes, setDishes] = useState([]);
   const [recommendedDish, setRecommendedDish] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
 
-  const filtered = restaurants.filter((r) =>
-    r.name.toLowerCase().includes(query.toLowerCase())
+  const filtered =
+    query.trim().length >= 2
+      ? restaurants.filter((r) =>
+          r.name.toLowerCase().includes(query.toLowerCase())
+        )
+      : [];
+  const foursquareDropdownResults = foursquareResults.filter(
+    (place) =>
+      !filtered.some(
+        (r) =>
+          r.name.toLowerCase() === place.name.toLowerCase() || r.id === place.id
+      )
   );
+
+  useEffect(() => {
+    setNewName((current) => {
+      if (!current.trim()) return query;
+      return current === query.slice(0, -1) || query.startsWith(current)
+        ? query
+        : current;
+    });
+  }, [query]);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 3) {
+      setFoursquareResults([]);
+      setFoursquareError(null);
+      setFoursquareSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setFoursquareSearching(true);
+    setFoursquareError(null);
+    const t = window.setTimeout(async () => {
+      const { results, error } = await searchFoursquarePlaces(
+        trimmed,
+        controller.signal
+      );
+      if (!controller.signal.aborted) {
+        setFoursquareResults(results);
+        setFoursquareError(error);
+        setFoursquareSearching(false);
+      }
+    }, 900);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(t);
+    };
+  }, [query]);
 
   const pickRestaurant = (r) => {
     setRestaurant(r);
@@ -1089,20 +1182,22 @@ function AddReviewFlow({
     pickRestaurant(r);
   };
 
-  const pickPlaceResult = (p) => {
+  const pickFoursquareResult = (place) => {
     const existing = restaurants.find(
-      (r) => r.name.toLowerCase() === p.name.toLowerCase()
+      (r) =>
+        r.name.toLowerCase() === place.name.toLowerCase() ||
+        r.id === place.id
     );
     if (existing) {
       pickRestaurant(existing);
       return;
     }
     const r = {
-      id: "r" + Date.now(),
-      name: p.name,
-      area: p.area || "Mumbai",
-      lat: p.lat,
-      lng: p.lng,
+      id: place.id,
+      name: place.name,
+      area: place.area,
+      lat: place.lat,
+      lng: place.lng,
       cuisines: [],
     };
     onAddRestaurant(r);
@@ -1140,14 +1235,17 @@ function AddReviewFlow({
   const handleSubmit = async () => {
     setSubmitting(true);
     const sentimentScore = await scoreSentiment(reviewText);
-    const recommendationScore =
-      Math.round((rating * 0.7 + sentimentScore * 0.3) * 10) / 10;
+    const recommendationScore = calculateRecommendationScore(
+      rating,
+      sentimentScore
+    );
     const review = {
       id: "rev" + Date.now(),
       restaurantId: restaurant.id,
       cuisines,
       starRating: rating,
       reviewText,
+      mustTry,
       sentimentScore,
       recommendationScore,
       dishes,
@@ -1173,7 +1271,7 @@ function AddReviewFlow({
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
         <div
           style={{
-            fontFamily: "'Press Start 2P', cursive",
+            fontFamily: DISPLAY_FONT,
             fontSize: 18,
             color: "#fffbe8",
             marginBottom: 6,
@@ -1187,7 +1285,7 @@ function AddReviewFlow({
         <SushiBeltLoader />
         <div
           style={{
-            fontFamily: "'Press Start 2P', monospace",
+            fontFamily: MONO_FONT,
             fontSize: 13,
             color: "#ffd23f",
           }}
@@ -1216,7 +1314,7 @@ function AddReviewFlow({
         >
           <div
             style={{
-              fontFamily: "'Press Start 2P', cursive",
+              fontFamily: DISPLAY_FONT,
               fontSize: 20,
               color: "#fffbe8",
             }}
@@ -1237,25 +1335,10 @@ function AddReviewFlow({
         </div>
         <input
           style={inputStyle}
-          placeholder="Search restaurants (e.g. Bademiya, or any place in Mumbai)..."
+          placeholder="Search restaurants in Mumbai..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        {placesError && (
-          <div
-            style={{
-              marginTop: 10,
-              fontSize: 12,
-              color: "#ff2e63",
-              background: "#2a0d10",
-              border: "1px solid #4a2f7a",
-              borderRadius: 2,
-              padding: "8px 12px",
-            }}
-          >
-            Google Places error: {placesError}
-          </div>
-        )}
         <div
           style={{
             marginTop: 12,
@@ -1306,7 +1389,7 @@ function AddReviewFlow({
             </div>
           ))}
 
-          {query.trim().length >= 3 && !placesError && (
+          {query.trim().length >= 3 && (
             <div
               style={{
                 fontSize: 11,
@@ -1319,80 +1402,130 @@ function AddReviewFlow({
                 gap: 6,
               }}
             >
-              From Google Places{" "}
-              {placesSearching && <Loader2 size={11} className="spin" />}
+              From Foursquare{" "}
+              {foursquareSearching && <Loader2 size={11} className="spin" />}
             </div>
           )}
-          {placesResults
-            .filter(
-              (p) =>
-                !filtered.some(
-                  (r) => r.name.toLowerCase() === p.name.toLowerCase()
-                )
-            )
-            .map((p) => (
-              <div
-                key={p.placeId}
-                onClick={() => pickPlaceResult(p)}
-                style={{
-                  background: "#0d0221",
-                  border: "1px solid #3d2466",
-                  borderRadius: 3,
-                  padding: "10px 14px",
-                  cursor: "pointer",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div
-                    style={{ color: "#fffbe8", fontSize: 14, fontWeight: 500 }}
-                  >
-                    {p.name}
-                  </div>
-                  <div style={{ color: "#8b8bc4", fontSize: 12 }}>{p.area}</div>
+          {foursquareError && (
+            <div
+              style={{
+                color: "#8b8bc4",
+                fontSize: 13,
+                background: "#2a0d10",
+                border: "1px solid #ff2e63",
+                borderRadius: 3,
+                padding: 14,
+              }}
+            >
+              {foursquareError}
+            </div>
+          )}
+          {foursquareDropdownResults.map((place) => (
+            <div
+              key={place.id}
+              onClick={() => pickFoursquareResult(place)}
+              style={{
+                background: "#0d0221",
+                border: "1px solid #3d2466",
+                borderRadius: 3,
+                padding: "10px 14px",
+                cursor: "pointer",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{ color: "#fffbe8", fontSize: 14, fontWeight: 500 }}
+                >
+                  {place.name}
                 </div>
-                <Plus size={16} color="#ff2e63" />
+                <div
+                  style={{
+                    color: "#8b8bc4",
+                    fontSize: 12,
+                    marginTop: 3,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: "100%",
+                  }}
+                  title={place.address}
+                >
+                  {place.area}
+                </div>
               </div>
-            ))}
+              <Plus size={16} color="#ff2e63" />
+            </div>
+          ))}
           {query.trim().length >= 3 &&
-            !placesSearching &&
-            placesResults.length === 0 &&
-            filtered.length === 0 && (
+            !foursquareSearching &&
+            !foursquareError &&
+            filtered.length === 0 &&
+            foursquareDropdownResults.length === 0 && (
               <div
                 style={{
+                  color: "#8b8bc4",
+                  fontSize: 13,
                   background: "#0d0221",
                   border: "1px dashed #4a2f7a",
                   borderRadius: 3,
                   padding: 14,
                 }}
               >
-                <div
-                  style={{ color: "#8b8bc4", fontSize: 13, marginBottom: 8 }}
-                >
-                  Nothing found on NushNom or Google Places. Add it manually.
-                </div>
-                <input
-                  style={{ ...inputStyle, marginBottom: 8 }}
-                  placeholder="Restaurant name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-                <input
-                  style={{ ...inputStyle, marginBottom: 8 }}
-                  placeholder="Area (e.g. Bandra)"
-                  value={newArea}
-                  onChange={(e) => setNewArea(e.target.value)}
-                />
-                <button
-                  onClick={addNewRestaurant}
-                  style={{ ...btnPrimary, flex: "none" }}
-                >
-                  Add and continue
-                </button>
+                No Foursquare match found. Add it manually below.
               </div>
             )}
+          {query.trim().length >= 3 && (
+            <div style={{ color: "#5c5470", fontSize: 11 }}>
+              Place search powered by{" "}
+              <a
+                href="https://foursquare.com/products/places"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "#8b8bc4" }}
+              >
+                Foursquare Places
+              </a>
+            </div>
+          )}
+          <div
+            style={{
+              background: "#0d0221",
+              border: "1px dashed #4a2f7a",
+              borderRadius: 3,
+              padding: 14,
+            }}
+          >
+            <div style={{ color: "#fffbe8", fontSize: 14, marginBottom: 8 }}>
+              Add a new restaurant
+            </div>
+            <input
+              style={{ ...inputStyle, marginBottom: 8 }}
+              placeholder="Restaurant name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+            <input
+              style={{ ...inputStyle, marginBottom: 8 }}
+              placeholder="Area (e.g. Bandra)"
+              value={newArea}
+              onChange={(e) => setNewArea(e.target.value)}
+            />
+            <button
+              disabled={!newName.trim()}
+              onClick={addNewRestaurant}
+              style={{
+                ...btnPrimary,
+                flex: "none",
+                opacity: newName.trim() ? 1 : 0.5,
+              }}
+            >
+              Add and continue
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1422,7 +1555,7 @@ function AddReviewFlow({
         <div>
           <div
             style={{
-              fontFamily: "'Press Start 2P', cursive",
+              fontFamily: DISPLAY_FONT,
               fontSize: 19,
               color: "#fffbe8",
             }}
@@ -1477,6 +1610,27 @@ function AddReviewFlow({
         value={reviewText}
         onChange={(e) => setReviewText(e.target.value)}
       />
+
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          color: "#fffbe8",
+          fontSize: 13,
+          marginBottom: 16,
+          cursor: "pointer",
+          width: "fit-content",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={mustTry}
+          onChange={(e) => setMustTry(e.target.checked)}
+          style={{ accentColor: "#ff2e63" }}
+        />
+        Must Try
+      </label>
 
       <label style={labelStyle}>Dishes you tried</label>
       {dishes.map((d) => (
@@ -1593,7 +1747,7 @@ function PizzaTracker({ reviewCount, onAddReview }) {
       <div style={{ flex: 1, minWidth: 180 }}>
         <div
           style={{
-            fontFamily: "'Press Start 2P', cursive",
+            fontFamily: DISPLAY_FONT,
             fontSize: 16,
             color: "#fffbe8",
             marginBottom: 4,
@@ -1607,7 +1761,7 @@ function PizzaTracker({ reviewCount, onAddReview }) {
         </div>
         <div
           style={{
-            fontFamily: "'Press Start 2P', monospace",
+            fontFamily: MONO_FONT,
             fontSize: 13,
             color: "#ffd23f",
           }}
@@ -1638,6 +1792,7 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
   const [cuisines, setCuisines] = useState(review.cuisines || []);
   const [rating, setRating] = useState(review.starRating);
   const [reviewText, setReviewText] = useState(review.reviewText);
+  const [mustTry, setMustTry] = useState(Boolean(review.mustTry));
   const [dishes, setDishes] = useState(review.dishes || []);
   const [recommendedDish, setRecommendedDish] = useState(
     review.recommendedDish || ""
@@ -1670,12 +1825,15 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
   const handleSave = async () => {
     setSubmitting(true);
     const sentimentScore = await scoreSentiment(reviewText);
-    const recommendationScore =
-      Math.round((rating * 0.7 + sentimentScore * 0.3) * 10) / 10;
+    const recommendationScore = calculateRecommendationScore(
+      rating,
+      sentimentScore
+    );
     onSave({
       cuisines,
       starRating: rating,
       reviewText,
+      mustTry,
       sentimentScore,
       recommendationScore,
       dishes,
@@ -1707,7 +1865,7 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
         <div>
           <div
             style={{
-              fontFamily: "'Press Start 2P', cursive",
+              fontFamily: DISPLAY_FONT,
               fontSize: 19,
               color: "#fffbe8",
             }}
@@ -1761,6 +1919,27 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
         value={reviewText}
         onChange={(e) => setReviewText(e.target.value)}
       />
+
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          color: "#fffbe8",
+          fontSize: 13,
+          marginBottom: 16,
+          cursor: "pointer",
+          width: "fit-content",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={mustTry}
+          onChange={(e) => setMustTry(e.target.checked)}
+          style={{ accentColor: "#ff2e63" }}
+        />
+        Must Try
+      </label>
 
       <label style={labelStyle}>Dishes you tried</label>
       {dishes.map((d) => (
@@ -1871,7 +2050,7 @@ function ManageReviews({
       >
         <div
           style={{
-            fontFamily: "'Press Start 2P', cursive",
+            fontFamily: DISPLAY_FONT,
             fontSize: 20,
             color: "#fffbe8",
           }}
@@ -2050,6 +2229,53 @@ function ManageReviews({
   );
 }
 
+function DashboardStats({ stats }) {
+  const items = [
+    { label: "Nush average", value: stats.averageScore, detail: "Across reviewed places", icon: Trophy, color: "#ffd23f" },
+    { label: "Cuisine crush", value: stats.topCuisine, detail: `${stats.topCuisineCount} ${stats.topCuisineCount === 1 ? "review" : "reviews"}`, icon: Utensils, color: "#ff2e63" },
+    { label: "Dish diary", value: stats.dishCount, detail: `${stats.photoCount} with photos`, icon: ChefHat, color: "#ff85a8" },
+    { label: "Hit rate", value: stats.hitRate, detail: "Rated 4.5+", icon: Flame, color: "#ff7a3d" },
+  ];
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <Award size={18} color="#ffd23f" />
+        <div style={{ fontFamily: DISPLAY_FONT, fontSize: 18, color: "#fffbe8" }}>Nush stats</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 12 }}>
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} style={{ background: "#1a0b2e", border: "1px solid #4a2f7a", borderRadius: 4, padding: 14, minHeight: 96 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "#8b8bc4" }}>{item.label}</div>
+                <Icon size={16} color={item.color} />
+              </div>
+              <div style={{ color: "#fffbe8", fontFamily: DISPLAY_FONT, fontSize: 16, lineHeight: 1.35, overflowWrap: "anywhere" }}>{item.value}</div>
+              <div style={{ color: "#8b8bc4", fontSize: 12, marginTop: 8 }}>{item.detail}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ background: "#0d0221", border: "1px solid #3d2466", borderRadius: 4, padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+        <div>
+          <div style={labelStyle}>Latest bite</div>
+          <div style={{ color: "#fffbe8", fontSize: 14 }}>{stats.latestBite}</div>
+        </div>
+        <div>
+          <div style={labelStyle}>Dish crush</div>
+          <div style={{ color: "#fffbe8", fontSize: 14 }}>{stats.dishCrush}</div>
+        </div>
+        <div>
+          <div style={labelStyle}>Photo memory rate</div>
+          <div style={{ color: "#fffbe8", fontSize: 14 }}>{stats.photoRate}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ restaurants, reviews, profile, onAddReview }) {
   const [selectedCuisine, setSelectedCuisine] = useState("");
   const [selectedRestaurantId, setSelectedRestaurantId] = useState(null);
@@ -2069,6 +2295,24 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
   }, [restaurants, reviews]);
 
   const top5 = scored.slice(0, 5);
+
+  const mustTryPicks = useMemo(() => {
+    const seen = new Set();
+    return [...reviews]
+      .filter((review) => review.mustTry)
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .map((review) => ({
+        review,
+        restaurant: restaurants.find((r) => r.id === review.restaurantId),
+      }))
+      .filter(({ restaurant }) => restaurant)
+      .filter(({ restaurant }) => {
+        if (seen.has(restaurant.id)) return false;
+        seen.add(restaurant.id);
+        return true;
+      })
+      .slice(0, 6);
+  }, [restaurants, reviews]);
 
   const byCuisine = useMemo(() => {
     const map = {};
@@ -2094,10 +2338,113 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
   const selectedRestaurant = restaurants.find(
     (r) => r.id === selectedRestaurantId
   );
+  const stats = useMemo(() => {
+    const averageScore = reviews.length
+      ? (
+          reviews.reduce((sum, review) => sum + review.recommendationScore, 0) /
+          reviews.length
+        ).toFixed(1)
+      : "0.0";
+    const cuisineCounts = {};
+    reviews.forEach((review) => {
+      (review.cuisines || []).forEach((cuisine) => {
+        cuisineCounts[cuisine] = (cuisineCounts[cuisine] || 0) + 1;
+      });
+    });
+    const [topCuisine = "Waiting", topCuisineCount = 0] =
+      Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1])[0] || [];
+    const dishes = reviews.flatMap((review) =>
+      (review.dishes || []).map((dish) => ({
+        ...dish,
+        restaurantId: review.restaurantId,
+        timestamp: review.timestamp,
+      }))
+    );
+    const namedDishes = dishes.filter((dish) => dish.name);
+    const photoCount = dishes.filter((dish) => dish.photo).length;
+    const hitCount = reviews.filter(
+      (review) => review.recommendationScore >= 4.5
+    ).length;
+    const latestReview = [...reviews].sort(
+      (a, b) => b.timestamp - a.timestamp
+    )[0];
+    const latestRestaurant = latestReview
+      ? restaurants.find((r) => r.id === latestReview.restaurantId)
+      : null;
+    const dishCrush = namedDishes.sort((a, b) => {
+      if ((b.rating || 0) !== (a.rating || 0)) {
+        return (b.rating || 0) - (a.rating || 0);
+      }
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    })[0];
+
+    return {
+      averageScore,
+      topCuisine,
+      topCuisineCount,
+      dishCount: namedDishes.length,
+      photoCount,
+      hitRate: reviews.length
+        ? `${Math.round((hitCount / reviews.length) * 100)}%`
+        : "0%",
+      latestBite: latestReview
+        ? `${latestRestaurant ? latestRestaurant.name : "Unknown"} · ${new Date(latestReview.timestamp).toLocaleDateString()}`
+        : "No bites logged yet",
+      dishCrush: dishCrush
+        ? `${dishCrush.name} · ${dishCrush.rating || 0}/5`
+        : "No dishes logged yet",
+      photoRate: dishes.length
+        ? `${Math.round((photoCount / dishes.length) * 100)}% of dishes`
+        : "No dish photos yet",
+    };
+  }, [restaurants, reviews]);
 
   return (
     <div>
       <PizzaTracker reviewCount={reviews.length} onAddReview={onAddReview} />
+      {reviews.length > 0 && <DashboardStats stats={stats} />}
+
+      {mustTryPicks.length > 0 && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 14,
+            }}
+          >
+            <Flame size={18} color="#ff85a8" />
+            <div
+              style={{
+                fontFamily: DISPLAY_FONT,
+                fontSize: 18,
+                color: "#fffbe8",
+              }}
+            >
+              Must try
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: 14,
+              marginBottom: 32,
+            }}
+          >
+            {mustTryPicks.map(({ restaurant }) => (
+              <RestaurantCard
+                key={`must-try-${restaurant.id}`}
+                restaurant={restaurant}
+                reviews={reviews}
+                badge="Must Try"
+                onClick={() => setSelectedRestaurantId(restaurant.id)}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       <div
         style={{
@@ -2110,7 +2457,7 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
         <TrendingUp size={18} color="#ffd23f" />
         <div
           style={{
-            fontFamily: "'Press Start 2P', cursive",
+            fontFamily: DISPLAY_FONT,
             fontSize: 18,
             color: "#fffbe8",
           }}
@@ -2153,7 +2500,7 @@ function Dashboard({ restaurants, reviews, profile, onAddReview }) {
             <Utensils size={18} color="#ff2e63" />
             <div
               style={{
-                fontFamily: "'Press Start 2P', cursive",
+                fontFamily: DISPLAY_FONT,
                 fontSize: 18,
                 color: "#fffbe8",
               }}
@@ -2223,7 +2570,12 @@ function EmptyState() {
 
 function AnushkaIntroDialog({ onClose }) {
   const [photoAvailable, setPhotoAvailable] = useState(true);
+  const [showLoveEgg, setShowLoveEgg] = useState(false);
   const photoSrc = "/anushka-sushi.jpeg";
+  const triggerLoveEgg = () => {
+    setShowLoveEgg(true);
+    window.setTimeout(() => setShowLoveEgg(false), 3200);
+  };
 
   return (
     <div
@@ -2251,8 +2603,50 @@ function AnushkaIntroDialog({ onClose }) {
           padding: 22,
           boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
           color: "#fffbe8",
+          position: "relative",
         }}
       >
+        <style>{`
+          .anushka-copy {
+            font-family: ${BODY_FONT};
+            font-size: 16px;
+            line-height: 1.72;
+            color: #d7d0f4;
+            font-weight: 400;
+          }
+          .anushka-copy p {
+            margin: 0 0 14px;
+          }
+          .anushka-copy strong {
+            color: #fffbe8;
+            font-weight: 700;
+          }
+          .anushka-copy em {
+            color: #f1dcff;
+            font-style: italic;
+          }
+          @keyframes cupidFloat {
+            0% { transform: translateX(-54px) translateY(10px) rotate(-8deg); opacity: 0; }
+            18% { opacity: 1; }
+            55% { transform: translateX(20px) translateY(-5px) rotate(5deg); opacity: 1; }
+            100% { transform: translateX(72px) translateY(-18px) rotate(8deg); opacity: 0; }
+          }
+          @keyframes arrowStrike {
+            0% { transform: translateX(-86px) rotate(-12deg); opacity: 0; }
+            22% { opacity: 1; }
+            60% { transform: translateX(4px) rotate(-12deg); opacity: 1; }
+            100% { transform: translateX(4px) rotate(-12deg); opacity: 0; }
+          }
+          @keyframes heartPop {
+            0%, 40% { transform: scale(0.82); filter: drop-shadow(0 0 0 rgba(255,46,99,0)); }
+            58% { transform: scale(1.28); filter: drop-shadow(0 0 18px rgba(255,46,99,0.9)); }
+            100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(255,46,99,0.45)); }
+          }
+          @keyframes loveMessage {
+            0%, 48% { opacity: 0; transform: translateY(8px); }
+            64%, 100% { opacity: 1; transform: translateY(0); }
+          }
+        `}</style>
         <div
           style={{
             display: "flex",
@@ -2263,9 +2657,11 @@ function AnushkaIntroDialog({ onClose }) {
         >
           <div
             style={{
-              fontFamily: "'Press Start 2P', cursive",
-              fontSize: 18,
-              lineHeight: 1.35,
+              fontFamily: DISPLAY_FONT,
+              fontSize: 22,
+              fontWeight: 700,
+              lineHeight: 1.18,
+              letterSpacing: 0,
               color: "#fffbe8",
             }}
           >
@@ -2339,20 +2735,16 @@ function AnushkaIntroDialog({ onClose }) {
           </div>
         )}
 
-        <div style={{ fontSize: 15, lineHeight: 1.6, color: "#d7d0f4" }}>
+        <div className="anushka-copy">
           <p>
             Part-time lawyer ⚖️, full-time traveller ✈️, and{" "}
-            <strong style={{ color: "#fffbe8" }}>
-              professionally obsessed with food
-            </strong>
+            <strong>professionally obsessed with food</strong>
             . 🍜
           </p>
           <p>
             One of the things that keeps me going is the very important
             responsibility of finding{" "}
-            <strong style={{ color: "#fffbe8" }}>
-              what I’m going to eat next
-            </strong>
+            <strong>what I’m going to eat next</strong>
             .
           </p>
           <p>
@@ -2361,14 +2753,12 @@ function AnushkaIntroDialog({ onClose }) {
             Beautiful views? Love them.
             <br />
             But more importantly…{" "}
-            <strong style={{ color: "#fffbe8" }}>where are we eating?</strong>
+            <strong>where are we eating?</strong>
           </p>
           <p>
             To give you an idea of how seriously I take food: someone once
             lovingly fed me a piece of dosa… and I{" "}
-            <strong style={{ color: "#fffbe8" }}>
-              took it OUT OF MY MOUTH
-            </strong>{" "}
+            <strong>took it OUT OF MY MOUTH</strong>{" "}
             because there wasn't enough chutney on it. 😭
           </p>
           <p>
@@ -2378,12 +2768,26 @@ function AnushkaIntroDialog({ onClose }) {
             <br />
             Yes. I took it back out.
             <br />
-            Yes. They still love me :p
+            Yes. They still{" "}
+            <button
+              onClick={triggerLoveEgg}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                margin: 0,
+                color: "inherit",
+                cursor: "pointer",
+                font: "inherit",
+                textDecoration: "none",
+              }}
+            >
+              love
+            </button>{" "}
+            me :p
           </p>
           <p>
-            <strong style={{ color: "#fffbe8" }}>
-              The dosa deserved more chutney. I stand by my decision.
-            </strong>
+            <strong>The dosa deserved more chutney. I stand by my decision.</strong>
           </p>
           <p>
             When it comes to cuisines, I don’t discriminate — my stomach
@@ -2392,9 +2796,7 @@ function AnushkaIntroDialog({ onClose }) {
             simply not an option.
           </p>
           <p>
-            <strong style={{ color: "#fffbe8" }}>
-              YOU need to try it too.
-            </strong>
+            <strong>YOU need to try it too.</strong>
           </p>
           <p>And then YOU.</p>
           <p>And probably that person over there as well.</p>
@@ -2406,16 +2808,16 @@ function AnushkaIntroDialog({ onClose }) {
           </p>
           <p>
             I've already successfully converted a few innocent people into{" "}
-            <strong style={{ color: "#fffbe8" }}>sushi lovers</strong>. 🍣
+            <strong>sushi lovers</strong>. 🍣
           </p>
           <p>
             Including one <em>particular someone</em> who apparently went all
-            the way to <strong style={{ color: "#fffbe8" }}>Japan</strong>{" "}
+            the way to <strong>Japan</strong>{" "}
             without having proper sushi.
           </p>
           <p>
             Imagine going to Japan and needing{" "}
-            <strong style={{ color: "#fffbe8" }}>me</strong> to introduce you to
+            <strong>me</strong> to introduce you to
             sushi afterwards.
           </p>
           <p>Embarrassing, really. 😂</p>
@@ -2427,6 +2829,76 @@ function AnushkaIntroDialog({ onClose }) {
             <strong>I eat. I judge. You benefit.</strong> ❤️🍴
           </p>
         </div>
+        {showLoveEgg && (
+          <div
+            aria-live="polite"
+            style={{
+              position: "sticky",
+              bottom: 12,
+              margin: "18px auto 0",
+              width: "min(320px, 100%)",
+              background: "#0d0221",
+              border: "1px solid #ff2e63",
+              borderRadius: 4,
+              padding: "14px 16px",
+              textAlign: "center",
+              boxShadow: "0 16px 42px rgba(0,0,0,0.45)",
+            }}
+          >
+            <div
+              style={{
+                position: "relative",
+                height: 74,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  left: "18%",
+                  fontSize: 34,
+                  animation: "cupidFloat 2.2s ease-out forwards",
+                }}
+              >
+                👼
+              </span>
+              <span
+                style={{
+                  position: "absolute",
+                  left: "38%",
+                  fontSize: 30,
+                  animation: "arrowStrike 2.2s ease-out forwards",
+                }}
+              >
+                🏹
+              </span>
+              <span
+                style={{
+                  fontSize: 42,
+                  animation: "heartPop 2.2s ease-out forwards",
+                }}
+              >
+                ❤️
+              </span>
+            </div>
+            <div
+              style={{
+                color: "#fffbe8",
+                fontFamily: BODY_FONT,
+                fontSize: 15,
+                fontWeight: 800,
+                lineHeight: 1.45,
+                letterSpacing: 0,
+                animation: "loveMessage 2.2s ease-out forwards",
+              }}
+            >
+              Ashu loves you infinity
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2531,7 +3003,7 @@ export default function NushNom() {
         background: "#0d0221",
         minHeight: "100vh",
         padding: "28px 20px",
-        fontFamily: "'VT323', monospace",
+        fontFamily: BODY_FONT,
       }}
     >
       <style>{`
@@ -2581,7 +3053,7 @@ export default function NushNom() {
             <div>
               <div
                 style={{
-                  fontFamily: "'Press Start 2P', cursive",
+                  fontFamily: DISPLAY_FONT,
                   fontSize: 24,
                   color: "#fffbe8",
                   fontWeight: 800,

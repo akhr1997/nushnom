@@ -17,30 +17,13 @@ function useFonts() {
   }, []);
 }
 
-// Paste your Google API key here (needs the Places API enabled,
-// restricted to your domain via HTTP referrer restrictions in Google Cloud Console).
-const GOOGLE_MAPS_API_KEY = "AIzaSyASFujL6T-rlzDbt_TJTAo2JZoIIs1mK8s";
-
 const CUISINES = [
   "North Indian", "South Indian", "Mughlai", "Parsi", "Gujarati",
   "Seafood / Malvani", "Street Food", "Cafe", "Continental", "Chinese",
   "Desserts", "Bakery", "Modern Indian", "Other"
 ];
 
-const SEED_RESTAURANTS = [
-  { id: "r1", name: "Bademiya", area: "Colaba", lat: 18.9216, lng: 72.8331, cuisines: ["Mughlai", "Street Food"] },
-  { id: "r2", name: "Trishna", area: "Fort", lat: 18.9308, lng: 72.8331, cuisines: ["Seafood / Malvani"] },
-  { id: "r3", name: "Britannia & Co.", area: "Ballard Estate", lat: 18.9430, lng: 72.8390, cuisines: ["Parsi"] },
-  { id: "r4", name: "Prithvi Cafe", area: "Juhu", lat: 19.1075, lng: 72.8263, cuisines: ["Cafe"] },
-  { id: "r5", name: "Swati Snacks", area: "Tardeo", lat: 18.9698, lng: 72.8145, cuisines: ["Gujarati", "Street Food"] },
-  { id: "r6", name: "Peshawri", area: "Andheri East", lat: 19.1075, lng: 72.8479, cuisines: ["North Indian", "Mughlai"] },
-  { id: "r7", name: "The Bombay Canteen", area: "Lower Parel", lat: 18.9967, lng: 72.8258, cuisines: ["Modern Indian"] },
-  { id: "r8", name: "Gajalee", area: "Vile Parle", lat: 19.1003, lng: 72.8493, cuisines: ["Seafood / Malvani"] },
-  { id: "r9", name: "Cafe Madras", area: "Matunga", lat: 19.0273, lng: 72.8554, cuisines: ["South Indian"] },
-  { id: "r10", name: "Suzette", area: "Bandra", lat: 19.0596, lng: 72.8295, cuisines: ["Continental", "Cafe"] },
-  { id: "r11", name: "Yazdani Bakery", area: "Fort", lat: 18.9420, lng: 72.8330, cuisines: ["Bakery", "Parsi"] },
-  { id: "r12", name: "Mohammed Ali Road Stalls", area: "Bhendi Bazaar", lat: 18.9581, lng: 72.8320, cuisines: ["Street Food"] },
-];
+const SEED_RESTAURANTS = [];
 
 const LEVELS = [
   { name: "Street Food Rookie", min: 0 },
@@ -82,6 +65,7 @@ function computeBadges(reviews) {
 }
 
 const SLICES_PER_PIZZA = 8;
+const OPENAI_SENTIMENT_MODEL = "gpt-4o";
 
 function getPizzaProgress(reviewCount) {
   const wholePizzas = Math.floor(reviewCount / SLICES_PER_PIZZA);
@@ -102,63 +86,42 @@ function wedgePath(i, total, cx, cy, r) {
 
 async function scoreSentiment(text) {
   if (!text || text.trim().length < 3) return 3;
+  const fallbackScore = scoreLocalSentiment(text);
+  const apiKey = window.NUSHNOM_OPENAI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey) return fallbackScore;
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        system: "You score restaurant review text for enthusiasm and positivity, independent of any star rating. Respond with ONLY a JSON object, no markdown, no preamble: {\"score\": number}. Score is 0 to 5, one decimal place. 5 = ecstatic/glowing, 3 = mixed/neutral, 0 = very negative.",
-        messages: [{ role: "user", content: text }],
+        model: OPENAI_SENTIMENT_MODEL,
+        instructions: "Score restaurant review text for enthusiasm and positivity, independent of any star rating. Respond with only JSON: {\"score\": number}. Score is 0 to 5, one decimal place. 5 = ecstatic/glowing, 3 = mixed/neutral, 0 = very negative.",
+        input: text,
+        text: { format: { type: "json_object" } },
       }),
     });
+    if (!response.ok) return fallbackScore;
     const data = await response.json();
-    const textBlock = (data.content || []).find(b => b.type === "text");
-    if (!textBlock) return 3;
-    const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
+    const outputText = data.output_text || (data.output || []).flatMap(item => item.content || []).filter(content => content.type === "output_text").map(content => content.text).join("");
+    if (!outputText) return fallbackScore;
+    const cleaned = outputText.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     const score = Number(parsed.score);
-    return Number.isFinite(score) ? Math.max(0, Math.min(5, score)) : 3;
+    return Number.isFinite(score) ? Math.max(0, Math.min(5, score)) : fallbackScore;
   } catch (e) {
-    return 3;
+    return fallbackScore;
   }
 }
 
-async function searchGooglePlaces(query) {
-  if (!query || query.trim().length < 3) return { results: [], error: null };
-  try {
-    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location",
-      },
-      body: JSON.stringify({
-        textQuery: `${query} restaurant Mumbai`,
-        regionCode: "IN",
-        maxResultCount: 8,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      return { results: [], error: (data.error && data.error.message) || `Places search failed (HTTP ${response.status})` };
-    }
-    const places = data.places || [];
-    return {
-      results: places.map(p => ({
-        placeId: p.id,
-        name: p.displayName ? p.displayName.text : "Unknown",
-        area: p.formattedAddress || "Mumbai",
-        lat: p.location ? p.location.latitude : 19.076,
-        lng: p.location ? p.location.longitude : 72.8777,
-      })),
-      error: null,
-    };
-  } catch (e) {
-    return { results: [], error: "Network error reaching Google Places" };
-  }
+function scoreLocalSentiment(text) {
+  const normalized = text.toLowerCase();
+  const negativeWords = ["bad", "terrible", "awful", "horrible", "worst", "bland", "stale", "cold", "overpriced", "disappointing", "disappointed", "hate", "hated", "not good", "would not", "never again"];
+  const positiveWords = ["amazing", "excellent", "incredible", "perfect", "loved", "love", "delicious", "fantastic", "favorite", "favourite", "must try", "best", "great", "recommend"];
+  const negativeHits = negativeWords.filter(word => normalized.includes(word)).length;
+  const positiveHits = positiveWords.filter(word => normalized.includes(word)).length;
+  if (negativeHits > positiveHits) return Math.max(0.5, 2.2 - negativeHits * 0.4);
+  if (positiveHits > negativeHits) return Math.min(5, 3.6 + positiveHits * 0.35);
+  return 3;
 }
 
 function fileToBase64(file) {
@@ -373,20 +336,6 @@ function AddReviewFlow({ restaurants, reviews, onAddRestaurant, onSubmit, onClos
   const [restaurant, setRestaurant] = useState(null);
   const [newName, setNewName] = useState("");
   const [newArea, setNewArea] = useState("");
-  const [placesResults, setPlacesResults] = useState([]);
-  const [placesSearching, setPlacesSearching] = useState(false);
-  const [placesError, setPlacesError] = useState(null);
-
-  useEffect(() => {
-    if (query.trim().length < 3) { setPlacesResults([]); setPlacesError(null); return; }
-    let cancelled = false;
-    setPlacesSearching(true);
-    const t = setTimeout(async () => {
-      const { results, error } = await searchGooglePlaces(query);
-      if (!cancelled) { setPlacesResults(results); setPlacesError(error); setPlacesSearching(false); }
-    }, 500);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [query]);
 
   const [cuisines, setCuisines] = useState([]);
   const [rating, setRating] = useState(0);
@@ -396,7 +345,9 @@ function AddReviewFlow({ restaurants, reviews, onAddRestaurant, onSubmit, onClos
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
 
-  const filtered = restaurants.filter(r => r.name.toLowerCase().includes(query.toLowerCase()));
+  const filtered = query.trim().length >= 2
+    ? restaurants.filter(r => r.name.toLowerCase().includes(query.toLowerCase()))
+    : [];
 
   const pickRestaurant = (r) => { setRestaurant(r); setCuisines(r.cuisines.length ? [r.cuisines[0]] : []); setMode("review"); };
 
@@ -405,17 +356,6 @@ function AddReviewFlow({ restaurants, reviews, onAddRestaurant, onSubmit, onClos
     const r = {
       id: "r" + Date.now(), name: newName.trim(), area: newArea.trim() || "Mumbai",
       lat: 19.0 + Math.random() * 0.15, lng: 72.82 + Math.random() * 0.05, cuisines: []
-    };
-    onAddRestaurant(r);
-    pickRestaurant(r);
-  };
-
-  const pickPlaceResult = (p) => {
-    const existing = restaurants.find(r => r.name.toLowerCase() === p.name.toLowerCase());
-    if (existing) { pickRestaurant(existing); return; }
-    const r = {
-      id: "r" + Date.now(), name: p.name, area: p.area || "Mumbai",
-      lat: p.lat, lng: p.lng, cuisines: []
     };
     onAddRestaurant(r);
     pickRestaurant(r);
@@ -480,12 +420,7 @@ function AddReviewFlow({ restaurants, reviews, onAddRestaurant, onSubmit, onClos
           <div style={{ fontFamily: "'Baloo 2', cursive", fontSize: 20, color: "#F5EFE6" }}>Find a restaurant</div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "#B8A9D9", cursor: "pointer" }}><X size={20} /></button>
         </div>
-        <input style={inputStyle} placeholder="Search restaurants (e.g. Bademiya, or any place in Mumbai)..." value={query} onChange={e => setQuery(e.target.value)} />
-        {placesError && (
-          <div style={{ marginTop: 10, fontSize: 12, color: "#FF4D8D", background: "#2A0F1C", border: "1px solid #4E3480", borderRadius: 10, padding: "8px 12px" }}>
-            Google Places error: {placesError}
-          </div>
-        )}
+        <input style={inputStyle} placeholder="Search restaurants already added to NushNom..." value={query} onChange={e => setQuery(e.target.value)} />
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
           {filtered.length > 0 && (
             <div style={{ fontSize: 11, color: "#6E5C93", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>Already on NushNom</div>
@@ -503,33 +438,17 @@ function AddReviewFlow({ restaurants, reviews, onAddRestaurant, onSubmit, onClos
             </div>
           ))}
 
-          {query.trim().length >= 3 && !placesError && (
-            <div style={{ fontSize: 11, color: "#6E5C93", textTransform: "uppercase", letterSpacing: 0.5, marginTop: filtered.length ? 10 : 2, display: "flex", alignItems: "center", gap: 6 }}>
-              From Google Places {placesSearching && <Loader2 size={11} className="spin" />}
+          {query.trim().length >= 2 && filtered.length === 0 && (
+            <div style={{ color: "#B8A9D9", fontSize: 13, background: "#1B1030", border: "1px dashed #4E3480", borderRadius: 12, padding: 14 }}>
+              No saved restaurant found. Add a new restaurant below.
             </div>
           )}
-          {placesResults
-            .filter(p => !filtered.some(r => r.name.toLowerCase() === p.name.toLowerCase()))
-            .map((p) => (
-              <div key={p.placeId} onClick={() => pickPlaceResult(p)} style={{
-                background: "#1B1030", border: "1px solid #3A2560", borderRadius: 12, padding: "10px 14px",
-                cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center"
-              }}>
-                <div>
-                  <div style={{ color: "#F5EFE6", fontSize: 14, fontWeight: 500 }}>{p.name}</div>
-                  <div style={{ color: "#B8A9D9", fontSize: 12 }}>{p.area}</div>
-                </div>
-                <Plus size={16} color="#FF4D8D" />
-              </div>
-            ))}
-          {query.trim().length >= 3 && !placesSearching && placesResults.length === 0 && filtered.length === 0 && (
-            <div style={{ background: "#1B1030", border: "1px dashed #4E3480", borderRadius: 12, padding: 14 }}>
-              <div style={{ color: "#B8A9D9", fontSize: 13, marginBottom: 8 }}>Nothing found on NushNom or Google Places. Add it manually.</div>
-              <input style={{ ...inputStyle, marginBottom: 8 }} placeholder="Restaurant name" value={newName} onChange={e => setNewName(e.target.value)} />
-              <input style={{ ...inputStyle, marginBottom: 8 }} placeholder="Area (e.g. Bandra)" value={newArea} onChange={e => setNewArea(e.target.value)} />
-              <button onClick={addNewRestaurant} style={{ ...btnPrimary, flex: "none" }}>Add and continue</button>
-            </div>
-          )}
+          <div style={{ background: "#1B1030", border: "1px dashed #4E3480", borderRadius: 12, padding: 14 }}>
+            <div style={{ color: "#F5EFE6", fontSize: 14, marginBottom: 8 }}>Add a new restaurant</div>
+            <input style={{ ...inputStyle, marginBottom: 8 }} placeholder="Restaurant name" value={newName} onChange={e => setNewName(e.target.value)} />
+            <input style={{ ...inputStyle, marginBottom: 8 }} placeholder="Area (e.g. Bandra)" value={newArea} onChange={e => setNewArea(e.target.value)} />
+            <button disabled={!newName.trim()} onClick={addNewRestaurant} style={{ ...btnPrimary, flex: "none", opacity: newName.trim() ? 1 : 0.5 }}>Add and continue</button>
+          </div>
         </div>
       </div>
     );

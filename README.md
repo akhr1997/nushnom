@@ -18,33 +18,14 @@ These are React components meant to run as Claude.ai artifacts, or can be adapte
 - `lucide-react` for icons
 - A `window.storage` key-value API (Claude.ai artifact persistence) — if porting outside Claude.ai, replace `loadData()` / `saveData()` in the file with your own persistence layer (e.g. `localStorage`, a backend API, Supabase, etc.)
 
-### Google Places API key
+### Curator route
 
-Restaurant search uses the Google Places API (Text Search, New). Open the file and set your key here:
+Public visitors see the reviewed dashboard. Nush can add and manage reviews from the hidden `/nush` route. Restaurant search in the add flow uses Foursquare Places when `VITE_FOURSQUARE_API_KEY` is set, and keeps manual restaurant creation as a fallback.
 
-```js
-const GOOGLE_MAPS_API_KEY = "YOUR_GOOGLE_MAPS_API_KEY";
-```
+For quick local testing, you can also set `window.NUSHNOM_FOURSQUARE_API_KEY`.
 
-Required APIs on that key (Google Cloud Console → APIs & Services):
-- **Places API (New)**
+## OpenAI API usage
 
-Restrict the key with HTTP referrer restrictions once deployed.
+Sentiment scoring can use the OpenAI Responses API with `gpt-4o`, then blends with the star rating into a "recommendation score" used to rank the dashboard.
 
-### Passcode
-
-Only the "curator" (Anushka) can add or edit/delete reviews, gated by a simple passcode — not real auth, just a lightweight gate:
-
-```js
-const PASSCODE = "nushnom25";
-```
-
-Change this before sharing the app publicly.
-
-## Anthropic API usage
-
-Two features call the Anthropic Messages API directly from the client:
-- **Sentiment scoring** — blends with the star rating into a "recommendation score" used to rank the dashboard
-- (Both run client-side; no backend required when used as a Claude.ai artifact, where the API call is proxied automatically)
-
-If you port this outside Claude.ai, you'll need to either proxy these calls through your own backend (recommended, to avoid exposing an Anthropic API key client-side) or adapt the scoring logic.
+For local/client-only use, the app falls back to a simple built-in sentiment checker so obvious negative text like "coffee was really bad" still affects the score. For production, proxy OpenAI calls through a backend instead of exposing an API key in the browser. For quick local testing, set `window.NUSHNOM_OPENAI_API_KEY` or `VITE_OPENAI_API_KEY`.
