@@ -84,6 +84,46 @@ const CUISINE_GROUPS = [
 
 const CUISINES = CUISINE_GROUPS.flatMap((group) => group.cuisines);
 
+const AMBIANCE_OPTIONS = [
+  "Lively",
+  "Cozy",
+  "Romantic",
+  "Nerdy",
+  "Fancy",
+  "Quiet",
+  "Family-friendly",
+  "Date night",
+  "Work-friendly",
+  "Street-side",
+  "Old-school",
+  "Chaotic good",
+  "Instagrammable",
+  "Hidden gem",
+];
+
+const SERVICE_VIBE_OPTIONS = [
+  "Warm",
+  "Polite",
+  "Attentive",
+  "Slow",
+  "Rushed",
+  "Confused",
+  "Exceptional",
+  "Forgettable",
+];
+
+const WAIT_TIME_OPTIONS = [
+  "No wait",
+  "Short wait",
+  "15-30 min",
+  "30-60 min",
+  "1 hour+",
+  "Reservation recommended",
+  "Reservation required",
+  "Walk-in friendly",
+  "Not sure",
+];
+
 const LEGACY_SEED_RESTAURANT_IDS = new Set(
   Array.from({ length: 12 }, (_, i) => `r${i + 1}`)
 );
@@ -421,6 +461,11 @@ function dbReviewToApp(row, cuisines = [], dishes = []) {
     cuisines,
     starRating: Number(row.star_rating) || 0,
     reviewText: row.review_text || "",
+    serviceRating: Number(row.service_rating) || 0,
+    serviceVibe: row.service_vibe || "",
+    waitTime: row.wait_time || "",
+    serviceText: row.service_text || "",
+    ambiance: row.ambiance || "",
     mustTry: Boolean(row.must_try),
     sentimentScore:
       row.sentiment_score == null ? null : Number(row.sentiment_score),
@@ -453,6 +498,11 @@ function appReviewToDb(review) {
     sentiment_score: review.sentimentScore,
     recommendation_score: review.recommendationScore,
     review_text: review.reviewText,
+    service_rating: review.serviceRating || null,
+    service_vibe: review.serviceVibe || null,
+    wait_time: review.waitTime || null,
+    service_text: review.serviceText || null,
+    ambiance: review.ambiance || null,
     recommended_dish: review.recommendedDish || null,
     must_try: Boolean(review.mustTry),
     timestamp: review.timestamp,
@@ -531,14 +581,6 @@ async function loadData() {
         dbRestaurantToApp(row, Array.from(cuisinesByRestaurant[row.id] || []))
       );
 
-      if (restaurants.length === 0 && reviews.length === 0) {
-        const localData = await loadLocalData();
-        if (localData.restaurants.length || localData.reviews.length) {
-          await migrateLocalDataToSupabase(localData);
-          return localData;
-        }
-      }
-
       return { restaurants, reviews };
     } catch (e) {
       console.error("Supabase load failed; falling back to local storage.", e);
@@ -556,15 +598,6 @@ async function loadLocalData() {
     }
   } catch (e) {}
   return { restaurants: [], reviews: [] };
-}
-
-async function migrateLocalDataToSupabase(data) {
-  for (const restaurant of data.restaurants || []) {
-    await saveRestaurantRecord(restaurant);
-  }
-  for (const review of data.reviews || []) {
-    await saveReviewRecord(review);
-  }
 }
 
 async function saveData(data) {
@@ -1099,11 +1132,79 @@ function RestaurantDetailsModal({ restaurant, reviews, onClose }) {
                   color: "#fffbe8",
                   fontSize: 14,
                   lineHeight: 1.5,
-                  marginBottom: (rv.dishes || []).length ? 12 : 0,
+                  marginBottom:
+                    rv.serviceRating ||
+                    rv.serviceVibe ||
+                    rv.waitTime ||
+                    rv.serviceText ||
+                    rv.ambiance ||
+                    (rv.dishes || []).length
+                      ? 12
+                      : 0,
                 }}
               >
                 {rv.reviewText}
               </div>
+
+              {(rv.serviceRating ||
+                rv.serviceVibe ||
+                rv.waitTime ||
+                rv.serviceText ||
+                rv.ambiance) && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 12,
+                    marginBottom: (rv.dishes || []).length ? 12 : 0,
+                  }}
+                >
+                  {rv.serviceRating > 0 && (
+                    <div>
+                      <div style={labelStyle}>Service rating</div>
+                      <StarRating value={rv.serviceRating} readOnly size={14} />
+                    </div>
+                  )}
+                  {rv.serviceVibe && (
+                    <div>
+                      <div style={labelStyle}>Service vibe</div>
+                      <div style={{ color: "#ff85a8", fontSize: 13 }}>
+                        {rv.serviceVibe}
+                      </div>
+                    </div>
+                  )}
+                  {rv.waitTime && (
+                    <div>
+                      <div style={labelStyle}>Wait time</div>
+                      <div style={{ color: "#ffd23f", fontSize: 13 }}>
+                        {rv.waitTime}
+                      </div>
+                    </div>
+                  )}
+                  {rv.serviceText && (
+                    <div>
+                      <div style={labelStyle}>Service notes</div>
+                      <div
+                        style={{
+                          color: "#d7d0f4",
+                          fontSize: 13,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {rv.serviceText}
+                      </div>
+                    </div>
+                  )}
+                  {rv.ambiance && (
+                    <div>
+                      <div style={labelStyle}>Ambiance</div>
+                      <div style={{ color: "#ff85a8", fontSize: 13 }}>
+                        {rv.ambiance}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {(rv.dishes || []).length > 0 && (
                 <div>
@@ -1424,6 +1525,11 @@ function AddReviewFlow({
   const [cuisines, setCuisines] = useState([]);
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
+  const [serviceRating, setServiceRating] = useState(0);
+  const [serviceVibe, setServiceVibe] = useState("");
+  const [waitTime, setWaitTime] = useState("");
+  const [serviceText, setServiceText] = useState("");
+  const [ambiance, setAmbiance] = useState("");
   const [mustTry, setMustTry] = useState(false);
   const [dishes, setDishes] = useState([]);
   const [recommendedDish, setRecommendedDish] = useState("");
@@ -1566,6 +1672,11 @@ function AddReviewFlow({
       cuisines,
       starRating: rating,
       reviewText,
+      serviceRating,
+      serviceVibe,
+      waitTime,
+      serviceText,
+      ambiance,
       mustTry,
       sentimentScore,
       recommendationScore,
@@ -1911,6 +2022,66 @@ function AddReviewFlow({
         onChange={(e) => setReviewText(e.target.value)}
       />
 
+      <label style={labelStyle}>Service rating</label>
+      <div style={{ marginBottom: 16 }}>
+        <StarRating value={serviceRating} onChange={setServiceRating} />
+      </div>
+
+      <label style={labelStyle}>Service vibe</label>
+      <select
+        style={{ ...inputStyle, marginBottom: 16 }}
+        value={serviceVibe}
+        onChange={(e) => setServiceVibe(e.target.value)}
+      >
+        <option value="">Pick the service vibe</option>
+        {SERVICE_VIBE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+
+      <label style={labelStyle}>Wait time</label>
+      <select
+        style={{ ...inputStyle, marginBottom: 16 }}
+        value={waitTime}
+        onChange={(e) => setWaitTime(e.target.value)}
+      >
+        <option value="">Pick the wait situation</option>
+        {WAIT_TIME_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+
+      <label style={labelStyle}>Service notes</label>
+      <textarea
+        style={{
+          ...inputStyle,
+          minHeight: 64,
+          resize: "vertical",
+          marginBottom: 16,
+        }}
+        placeholder="How was the service?"
+        value={serviceText}
+        onChange={(e) => setServiceText(e.target.value)}
+      />
+
+      <label style={labelStyle}>Ambiance</label>
+      <select
+        style={{ ...inputStyle, marginBottom: 16 }}
+        value={ambiance}
+        onChange={(e) => setAmbiance(e.target.value)}
+      >
+        <option value="">Pick the vibe</option>
+        {AMBIANCE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+
       <label
         style={{
           display: "flex",
@@ -2092,6 +2263,11 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
   const [cuisines, setCuisines] = useState(review.cuisines || []);
   const [rating, setRating] = useState(review.starRating);
   const [reviewText, setReviewText] = useState(review.reviewText);
+  const [serviceRating, setServiceRating] = useState(review.serviceRating || 0);
+  const [serviceVibe, setServiceVibe] = useState(review.serviceVibe || "");
+  const [waitTime, setWaitTime] = useState(review.waitTime || "");
+  const [serviceText, setServiceText] = useState(review.serviceText || "");
+  const [ambiance, setAmbiance] = useState(review.ambiance || "");
   const [mustTry, setMustTry] = useState(Boolean(review.mustTry));
   const [dishes, setDishes] = useState(review.dishes || []);
   const [recommendedDish, setRecommendedDish] = useState(
@@ -2133,6 +2309,11 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
       cuisines,
       starRating: rating,
       reviewText,
+      serviceRating,
+      serviceVibe,
+      waitTime,
+      serviceText,
+      ambiance,
       mustTry,
       sentimentScore,
       recommendationScore,
@@ -2197,6 +2378,66 @@ function EditReviewForm({ review, restaurant, onSave, onCancel }) {
         value={reviewText}
         onChange={(e) => setReviewText(e.target.value)}
       />
+
+      <label style={labelStyle}>Service rating</label>
+      <div style={{ marginBottom: 16 }}>
+        <StarRating value={serviceRating} onChange={setServiceRating} />
+      </div>
+
+      <label style={labelStyle}>Service vibe</label>
+      <select
+        style={{ ...inputStyle, marginBottom: 16 }}
+        value={serviceVibe}
+        onChange={(e) => setServiceVibe(e.target.value)}
+      >
+        <option value="">Pick the service vibe</option>
+        {SERVICE_VIBE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+
+      <label style={labelStyle}>Wait time</label>
+      <select
+        style={{ ...inputStyle, marginBottom: 16 }}
+        value={waitTime}
+        onChange={(e) => setWaitTime(e.target.value)}
+      >
+        <option value="">Pick the wait situation</option>
+        {WAIT_TIME_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+
+      <label style={labelStyle}>Service notes</label>
+      <textarea
+        style={{
+          ...inputStyle,
+          minHeight: 64,
+          resize: "vertical",
+          marginBottom: 16,
+        }}
+        placeholder="How was the service?"
+        value={serviceText}
+        onChange={(e) => setServiceText(e.target.value)}
+      />
+
+      <label style={labelStyle}>Ambiance</label>
+      <select
+        style={{ ...inputStyle, marginBottom: 16 }}
+        value={ambiance}
+        onChange={(e) => setAmbiance(e.target.value)}
+      >
+        <option value="">Pick the vibe</option>
+        {AMBIANCE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
 
       <label
         style={{

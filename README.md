@@ -34,7 +34,7 @@ VITE_SUPABASE_ANON_KEY=
 
 The current schema includes public read access and temporary write access for the hidden `/nush` route. Before adding visitor likes/comments, replace the temporary write policies with authenticated or server-side admin writes.
 
-If Supabase is configured and the database is empty, the app will copy any existing local reviews into Supabase on first load.
+If Supabase is configured, the app reads and writes only to Supabase. Local storage is used only as a fallback when Supabase env vars are not present.
 
 ### Curator route
 
