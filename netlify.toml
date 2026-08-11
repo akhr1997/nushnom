@@ -1,0 +1,4 @@
+[[redirects]]
+  from = "/api/foursquare/search"
+  to = "/.netlify/functions/foursquare-search"
+  status = 200

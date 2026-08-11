@@ -268,16 +268,7 @@ function getFoursquareArea(place) {
 async function searchFoursquarePlaces(query, signal) {
   if (!query || query.trim().length < 3) return { results: [], error: null };
   const browserApiKey = window.NUSHNOM_FOURSQUARE_API_KEY;
-  const envApiKey = import.meta.env.VITE_FOURSQUARE_API_KEY;
-  const useDevProxy = import.meta.env.DEV && !browserApiKey;
-  const apiKey = browserApiKey || envApiKey;
-  if (!useDevProxy && !apiKey) {
-    return {
-      results: [],
-      error:
-        "Foursquare key missing in this deployment. Add VITE_FOURSQUARE_API_KEY to the deploy environment and rebuild.",
-    };
-  }
+  const useProxy = !browserApiKey;
 
   try {
     const params = new URLSearchParams({
@@ -286,28 +277,29 @@ async function searchFoursquarePlaces(query, signal) {
       limit: "8",
       sort: "RELEVANCE",
     });
-    const url = useDevProxy
+    const url = useProxy
       ? `/api/foursquare/search?${params.toString()}`
       : `https://places-api.foursquare.com/places/search?${params.toString()}`;
     const response = await fetch(url, {
       signal,
-      headers: !useDevProxy && apiKey
+      headers: browserApiKey
         ? {
             Accept: "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${browserApiKey}`,
             "X-Places-Api-Version": FOURSQUARE_API_VERSION,
           }
         : {
             Accept: "application/json",
           },
     });
+    const data = await response.json();
     if (!response.ok) {
       return {
         results: [],
-        error: `Foursquare search failed (HTTP ${response.status})`,
+        error:
+          data.message || `Foursquare search failed (HTTP ${response.status})`,
       };
     }
-    const data = await response.json();
     return {
       results: (data.results || []).map((place) => {
         const mainGeo = place.geocodes?.main || {};
