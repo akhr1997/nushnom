@@ -367,6 +367,109 @@ function fileToBase64(file) {
 
 const STORAGE_KEY = "nushnom-data";
 
+function getSupabaseConfig() {
+  const url =
+    window.NUSHNOM_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL || "";
+  const anonKey =
+    window.NUSHNOM_SUPABASE_ANON_KEY ||
+    import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    "";
+  return { url: url.replace(/\/$/, ""), anonKey };
+}
+
+function hasSupabaseConfig() {
+  const { url, anonKey } = getSupabaseConfig();
+  return Boolean(url && anonKey);
+}
+
+async function supabaseRequest(path, options = {}) {
+  const { url, anonKey } = getSupabaseConfig();
+  const response = await fetch(`${url}/rest/v1/${path}${options.query || ""}`, {
+    method: options.method || "GET",
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      "Content-Type": "application/json",
+      ...(options.prefer ? { Prefer: options.prefer } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || `Supabase request failed (${response.status})`);
+  }
+  return text ? JSON.parse(text) : null;
+}
+
+function dbRestaurantToApp(row, cuisines = []) {
+  return {
+    id: row.id,
+    name: row.name,
+    area: row.area || "Mumbai",
+    lat: Number(row.latitude) || 19.076,
+    lng: Number(row.longitude) || 72.8777,
+    address: row.address || "",
+    foursquarePlaceId: row.foursquare_place_id || null,
+    cuisines,
+  };
+}
+
+function dbReviewToApp(row, cuisines = [], dishes = []) {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    cuisines,
+    starRating: Number(row.star_rating) || 0,
+    reviewText: row.review_text || "",
+    mustTry: Boolean(row.must_try),
+    sentimentScore:
+      row.sentiment_score == null ? null : Number(row.sentiment_score),
+    recommendationScore: Number(row.recommendation_score) || 0,
+    dishes,
+    recommendedDish: row.recommended_dish || null,
+    timestamp: Number(row.timestamp) || Date.parse(row.created_at) || Date.now(),
+  };
+}
+
+function appRestaurantToDb(restaurant) {
+  return {
+    id: restaurant.id,
+    name: restaurant.name,
+    area: restaurant.area || "Mumbai",
+    address: restaurant.address || null,
+    latitude: restaurant.lat || null,
+    longitude: restaurant.lng || null,
+    foursquare_place_id: restaurant.id?.startsWith("fsq-")
+      ? restaurant.id.replace(/^fsq-/, "")
+      : restaurant.foursquarePlaceId || null,
+  };
+}
+
+function appReviewToDb(review) {
+  return {
+    id: review.id,
+    restaurant_id: review.restaurantId,
+    star_rating: review.starRating,
+    sentiment_score: review.sentimentScore,
+    recommendation_score: review.recommendationScore,
+    review_text: review.reviewText,
+    recommended_dish: review.recommendedDish || null,
+    must_try: Boolean(review.mustTry),
+    timestamp: review.timestamp,
+  };
+}
+
+function appDishToDb(dish, reviewId) {
+  return {
+    id: dish.id,
+    review_id: reviewId,
+    name: dish.name || "",
+    rating: dish.rating || 0,
+    review_text: dish.review || "",
+    photo: dish.photo || null,
+  };
+}
+
 function removeUnreviewedLegacySeeds(data) {
   const reviews = data.reviews || [];
   const reviewedRestaurantIds = new Set(reviews.map((r) => r.restaurantId));
@@ -380,6 +483,72 @@ function removeUnreviewedLegacySeeds(data) {
 }
 
 async function loadData() {
+  if (hasSupabaseConfig()) {
+    try {
+      const [restaurantRows, reviewRows, cuisineRows, dishRows] =
+        await Promise.all([
+          supabaseRequest("restaurants", {
+            query: "?select=*&order=name.asc",
+          }),
+          supabaseRequest("reviews", {
+            query: "?select=*&order=timestamp.asc",
+          }),
+          supabaseRequest("review_cuisines", { query: "?select=*" }),
+          supabaseRequest("dishes", { query: "?select=*&order=created_at.asc" }),
+        ]);
+
+      const cuisinesByReview = {};
+      (cuisineRows || []).forEach((row) => {
+        if (!cuisinesByReview[row.review_id]) cuisinesByReview[row.review_id] = [];
+        cuisinesByReview[row.review_id].push(row.cuisine);
+      });
+
+      const dishesByReview = {};
+      (dishRows || []).forEach((row) => {
+        if (!dishesByReview[row.review_id]) dishesByReview[row.review_id] = [];
+        dishesByReview[row.review_id].push({
+          id: row.id,
+          name: row.name || "",
+          rating: Number(row.rating) || 0,
+          review: row.review_text || "",
+          photo: row.photo || null,
+        });
+      });
+
+      const reviews = (reviewRows || []).map((row) =>
+        dbReviewToApp(row, cuisinesByReview[row.id] || [], dishesByReview[row.id] || [])
+      );
+      const cuisinesByRestaurant = {};
+      reviews.forEach((review) => {
+        if (!cuisinesByRestaurant[review.restaurantId]) {
+          cuisinesByRestaurant[review.restaurantId] = new Set();
+        }
+        review.cuisines.forEach((cuisine) =>
+          cuisinesByRestaurant[review.restaurantId].add(cuisine)
+        );
+      });
+      const restaurants = (restaurantRows || []).map((row) =>
+        dbRestaurantToApp(row, Array.from(cuisinesByRestaurant[row.id] || []))
+      );
+
+      if (restaurants.length === 0 && reviews.length === 0) {
+        const localData = await loadLocalData();
+        if (localData.restaurants.length || localData.reviews.length) {
+          await migrateLocalDataToSupabase(localData);
+          return localData;
+        }
+      }
+
+      return { restaurants, reviews };
+    } catch (e) {
+      console.error("Supabase load failed; falling back to local storage.", e);
+    }
+  }
+
+  return loadLocalData();
+}
+
+async function loadLocalData() {
   try {
     const result = await window.storage.get(STORAGE_KEY, true);
     if (result && result.value) {
@@ -389,10 +558,95 @@ async function loadData() {
   return { restaurants: [], reviews: [] };
 }
 
+async function migrateLocalDataToSupabase(data) {
+  for (const restaurant of data.restaurants || []) {
+    await saveRestaurantRecord(restaurant);
+  }
+  for (const review of data.reviews || []) {
+    await saveReviewRecord(review);
+  }
+}
+
 async function saveData(data) {
+  if (hasSupabaseConfig()) return;
   try {
     await window.storage.set(STORAGE_KEY, JSON.stringify(data), true);
   } catch (e) {}
+}
+
+async function saveRestaurantRecord(restaurant) {
+  if (!hasSupabaseConfig()) return;
+  await supabaseRequest("restaurants?on_conflict=id", {
+    method: "POST",
+    body: appRestaurantToDb(restaurant),
+    prefer: "resolution=merge-duplicates,return=minimal",
+  });
+}
+
+async function saveReviewRecord(review) {
+  if (!hasSupabaseConfig()) return;
+  await supabaseRequest("reviews", {
+    method: "POST",
+    body: appReviewToDb(review),
+    prefer: "return=minimal",
+  });
+  if ((review.cuisines || []).length) {
+    await supabaseRequest("review_cuisines", {
+      method: "POST",
+      body: review.cuisines.map((cuisine) => ({
+        review_id: review.id,
+        cuisine,
+      })),
+      prefer: "return=minimal",
+    });
+  }
+  if ((review.dishes || []).length) {
+    await supabaseRequest("dishes", {
+      method: "POST",
+      body: review.dishes.map((dish) => appDishToDb(dish, review.id)),
+      prefer: "return=minimal",
+    });
+  }
+}
+
+async function updateReviewRecord(id, updates) {
+  if (!hasSupabaseConfig()) return;
+  await supabaseRequest("reviews", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(id)}`,
+    body: appReviewToDb({ ...updates, id, restaurantId: updates.restaurantId }),
+    prefer: "return=minimal",
+  });
+  await supabaseRequest("review_cuisines", {
+    method: "DELETE",
+    query: `?review_id=eq.${encodeURIComponent(id)}`,
+  });
+  if ((updates.cuisines || []).length) {
+    await supabaseRequest("review_cuisines", {
+      method: "POST",
+      body: updates.cuisines.map((cuisine) => ({ review_id: id, cuisine })),
+      prefer: "return=minimal",
+    });
+  }
+  await supabaseRequest("dishes", {
+    method: "DELETE",
+    query: `?review_id=eq.${encodeURIComponent(id)}`,
+  });
+  if ((updates.dishes || []).length) {
+    await supabaseRequest("dishes", {
+      method: "POST",
+      body: updates.dishes.map((dish) => appDishToDb(dish, id)),
+      prefer: "return=minimal",
+    });
+  }
+}
+
+async function deleteReviewRecord(id) {
+  if (!hasSupabaseConfig()) return;
+  await supabaseRequest("reviews", {
+    method: "DELETE",
+    query: `?id=eq.${encodeURIComponent(id)}`,
+  });
 }
 
 function StarRating({ value, onChange, size = 22, readOnly = false }) {
@@ -1235,7 +1489,7 @@ function AddReviewFlow({
     setMode("review");
   };
 
-  const addNewRestaurant = () => {
+  const addNewRestaurant = async () => {
     if (!newName.trim()) return;
     const r = {
       id: "r" + Date.now(),
@@ -1245,11 +1499,11 @@ function AddReviewFlow({
       lng: 72.82 + Math.random() * 0.05,
       cuisines: [],
     };
-    onAddRestaurant(r);
+    await onAddRestaurant(r);
     pickRestaurant(r);
   };
 
-  const pickFoursquareResult = (place) => {
+  const pickFoursquareResult = async (place) => {
     const existing = restaurants.find(
       (r) =>
         r.name.toLowerCase() === place.name.toLowerCase() ||
@@ -1267,7 +1521,7 @@ function AddReviewFlow({
       lng: place.lng,
       cuisines: [],
     };
-    onAddRestaurant(r);
+    await onAddRestaurant(r);
     pickRestaurant(r);
   };
 
@@ -3000,27 +3254,55 @@ export default function NushNom() {
 
   const closeToDashboard = () => setView("dashboard");
 
-  const addRestaurant = (r) =>
-    setData((prev) => ({ ...prev, restaurants: [...prev.restaurants, r] }));
-  const addReview = (review) =>
+  const addRestaurant = async (r) => {
+    try {
+      await saveRestaurantRecord(r);
+    } catch (e) {
+      console.error("Restaurant save failed.", e);
+    }
     setData((prev) => ({
       ...prev,
-      reviews: [...prev.reviews, review],
-      restaurants: prev.restaurants.map((r) =>
-        r.id === review.restaurantId
+      restaurants: prev.restaurants.some((restaurant) => restaurant.id === r.id)
+        ? prev.restaurants
+        : [...prev.restaurants, r],
+    }));
+  };
+  const addReview = async (review) => {
+    try {
+      await saveReviewRecord(review);
+    } catch (e) {
+      console.error("Review save failed.", e);
+    }
+    setData((prev) => ({
+      ...prev,
+      reviews: prev.reviews.some((rv) => rv.id === review.id)
+        ? prev.reviews
+        : [...prev.reviews, review],
+      restaurants: prev.restaurants.map((restaurant) =>
+        restaurant.id === review.restaurantId
           ? {
-              ...r,
+              ...restaurant,
               cuisines: Array.from(
-                new Set([...(r.cuisines || []), ...(review.cuisines || [])])
+                new Set([
+                  ...(restaurant.cuisines || []),
+                  ...(review.cuisines || []),
+                ])
               ),
             }
-          : r
+          : restaurant
       ),
     }));
-  const updateReview = (id, updates) =>
+  };
+  const updateReview = async (id, updates) => {
+    const target = data.reviews.find((r) => r.id === id);
+    if (!target) return;
+    const nextReview = { ...target, ...updates };
+    try {
+      await updateReviewRecord(id, nextReview);
+    } catch (e) {
+      console.error("Review update failed.", e);
+    }
     setData((prev) => {
-      const target = prev.reviews.find((r) => r.id === id);
-      if (!target) return prev;
       return {
         ...prev,
         reviews: prev.reviews.map((r) =>
@@ -3038,11 +3320,18 @@ export default function NushNom() {
         ),
       };
     });
-  const deleteReview = (id) =>
+  };
+  const deleteReview = async (id) => {
+    try {
+      await deleteReviewRecord(id);
+    } catch (e) {
+      console.error("Review delete failed.", e);
+    }
     setData((prev) => ({
       ...prev,
       reviews: prev.reviews.filter((r) => r.id !== id),
     }));
+  };
 
   return (
     <div

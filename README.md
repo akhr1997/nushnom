@@ -16,7 +16,25 @@ All three files are self-contained single-file React components with identical f
 These are React components meant to run as Claude.ai artifacts, or can be adapted into any React project (Vite, Next.js, etc.) with:
 
 - `lucide-react` for icons
-- A `window.storage` key-value API (Claude.ai artifact persistence) — if porting outside Claude.ai, replace `loadData()` / `saveData()` in the file with your own persistence layer (e.g. `localStorage`, a backend API, Supabase, etc.)
+- Supabase for shared restaurant/review storage, with local storage fallback when Supabase env vars are not configured
+
+### Database setup
+
+Phase 1 uses Supabase tables for restaurants, Nush's reviews, cuisines, and dishes.
+
+1. Create a Supabase project.
+2. Open Supabase SQL Editor.
+3. Run `supabase/schema.sql`.
+4. Add these environment variables locally and in Netlify:
+
+```bash
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
+
+The current schema includes public read access and temporary write access for the hidden `/nush` route. Before adding visitor likes/comments, replace the temporary write policies with authenticated or server-side admin writes.
+
+If Supabase is configured and the database is empty, the app will copy any existing local reviews into Supabase on first load.
 
 ### Curator route
 
